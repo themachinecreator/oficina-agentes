@@ -39,6 +39,7 @@ create table if not exists aprobaciones (
   creada timestamptz not null default now(),
   resuelta timestamptz
 );
+create index if not exists aprobaciones_agente_idx on aprobaciones (agente);
 
 -- Solo el servidor (con la clave secreta) accede a estas tablas.
 alter table agentes enable row level security;
