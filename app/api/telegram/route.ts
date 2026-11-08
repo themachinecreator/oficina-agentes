@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
-import { enviar, escribiendo } from '@/lib/telegram';
+import { enviar, escribiendo, telegram } from '@/lib/telegram';
+import { resolverAprobacion } from '@/lib/aprobaciones';
 import { responderArthur } from '@/lib/arthur';
 
 export const maxDuration = 60;
@@ -12,6 +13,19 @@ export async function POST(req: Request) {
     return new Response('No autorizado', { status: 401 });
   }
   const update = await req.json();
+
+  // Botones de aprobación (Enviar respuesta / No responder)
+  if (update.callback_query) {
+    const cq = update.callback_query;
+    const dueño = process.env.TELEGRAM_OWNER_ID;
+    const m = /^apr:(\d+):(si|no)$/.exec(cq.data || '');
+    let texto = 'Listo.';
+    if (!dueño || String(cq.from.id) !== dueño) texto = 'Esta oficina es privada.';
+    else if (m) texto = await resolverAprobacion(Number(m[1]), m[2] === 'si');
+    await telegram('answerCallbackQuery', { callback_query_id: cq.id, text: texto.slice(0, 190) }).catch(() => {});
+    return ok();
+  }
+
   const msg = update.message;
   if (!msg?.text) return ok();
 

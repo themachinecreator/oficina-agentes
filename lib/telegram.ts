@@ -20,3 +20,29 @@ export async function enviar(chatId: number | string, texto: string) {
 export async function escribiendo(chatId: number | string) {
   await telegram('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {});
 }
+
+export function dueñoChatId() {
+  return process.env.TELEGRAM_OWNER_ID || '';
+}
+
+export async function avisar(texto: string) {
+  const chat = dueñoChatId();
+  if (chat) await enviar(chat, texto);
+}
+
+export async function enviarConBotones(texto: string, botones: { texto: string; dato: string }[]) {
+  const chat = dueñoChatId();
+  if (!chat) return null;
+  const r = await telegram('sendMessage', {
+    chat_id: chat,
+    text: texto.slice(0, 4000),
+    reply_markup: { inline_keyboard: [botones.map((b) => ({ text: b.texto, callback_data: b.dato }))] },
+  });
+  return r?.result?.message_id ?? null;
+}
+
+export async function editarMensaje(messageId: number, texto: string) {
+  const chat = dueñoChatId();
+  if (!chat || !messageId) return;
+  await telegram('editMessageText', { chat_id: chat, message_id: messageId, text: texto.slice(0, 4000) }).catch(() => {});
+}

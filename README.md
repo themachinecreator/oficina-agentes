@@ -48,6 +48,20 @@ Oficina 3D de agentes de IA para beltranrelojes y secretaría personal. Etapa 3:
 3. **Deployments** → último deploy → **Redeploy**.
 4. Mandale `/start`. Desde ahora solo te responde a vos.
 
+## Eleanor (Google)
+
+1. Google Cloud (con la cuenta de UdeSA): proyecto `Oficina Beltran`, APIs de Gmail, Calendar y Drive habilitadas, pantalla de consentimiento **Interna**, cliente OAuth web con redirección `https://oficina-agentes-351k.vercel.app/api/google/callback`.
+2. En Vercel: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` y `CRON_SECRET`.
+3. Abrí `/api/google/conectar` y aceptá los permisos.
+4. Volvé a abrir `/api/configurar-webhook` para que Telegram mande también los botones de aprobación.
+
+Qué hace:
+- Cada 10 minutos (pg_cron en Supabase llama a `/api/cron/eleanor`) lee los mails nuevos de la bandeja de entrada y decide: responder sola, informar, consultarte con botones o ignorar. Los procesados quedan con la etiqueta `Eleanor/Procesado`.
+- Agenda fechas concretas sin superponer eventos.
+- Todos los días a las 8:00 te manda el resumen del día (`/api/cron/resumen`).
+- Arthur usa la agenda, el mail y el Drive en su nombre cuando le pedís algo por Telegram.
+- Firma de los mails: `credenciales.eleanor_firma` = `beltran` (por defecto) o `asistente`.
+
 ## Seguridad
 - Las claves viven solo en Vercel. Nunca en el código ni en el chat.
 - El gasto de la API está limitado desde Claude Console (límite mensual).

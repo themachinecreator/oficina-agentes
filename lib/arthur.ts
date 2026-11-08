@@ -1,42 +1,49 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { db, setAhora, AgenteId } from './db';
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODELO = process.env.CLAUDE_MODEL || 'claude-haiku-5-5';
+import { anthropic, MODELO, fechaBA, PERFIL_BELTRAN } from './claude';
+import { googleConectado, eventos, crearEvento, superposiciones, buscarCorreos, buscarEnDrive, leerDocumento, horaBA } from './google';
 
 const EQUIPO = `
 - eleanor (Eleanor Vance), secretaria personal: mail institucional, Google Calendar y Drive. Coordina las visitas con Margaret.
-- margaret (Margaret Ellsworth), recepcionista de beltranrelojes: responde mensajes directos de Instagram con info y precio publicado. Las ofertas distintas al precio se derivan a Beltrán. Las visitas (Av. Alvear 1491; nunca después de las 18; martes y jueves desde las 15) se confirman con aprobación de Beltrán.
+- margaret (Margaret Ellsworth), recepcionista de beltranrelojes: responde mensajes directos de Instagram con info y precio publicado. Las ofertas distintas al precio se derivan a Beltrán. Las visitas se confirman con aprobación de Beltrán.
 - julian (Julian Hart), creador de contenido: ideas y guiones de videos cortos informativos, textos e historias.
 - theo (Theo Lang), editor de video: edita lo que graba Beltrán, se lo muestra antes de publicar, sube historias de stock cada dos días.
 - charles (Charles Pemberton), analista de mercado: precios en Chrono24, reloje.ar y competencia. Solo lee.`;
 
-function sistema() {
-  const ahora = new Intl.DateTimeFormat('es-AR', {
-    timeZone: 'America/Argentina/Buenos_Aires', dateStyle: 'full', timeStyle: 'short',
-  }).format(new Date());
-  return `Sos Arthur Whitmore, jefe de la oficina de agentes de IA de Beltrán Symonds Dagnino. La oficina trabaja para su negocio de relojes (beltranrelojes) y como secretaría personal.
-Personalidad: sereno, metódico, formal y cordial. Hablás poco y decidís rápido. Escribís en español rioplatense, con voseo, en mensajes cortos aptos para Telegram (sin markdown, sin tablas).
-Fecha y hora en Buenos Aires: ${ahora}.
+function sistema(conGoogle: boolean) {
+  return `Sos Arthur Whitmore, jefe de la oficina de agentes de IA de Beltrán. La oficina trabaja para su negocio de relojes y como secretaría personal.
+${PERFIL_BELTRAN}
+Personalidad: sereno, metódico, formal y cordial. Hablás poco y decidís rápido. Escribís en español rioplatense, con voseo, en mensajes cortos aptos para Telegram (sin markdown, sin tablas, sin asteriscos).
+Fecha y hora en Buenos Aires: ${fechaBA()}.
 
-Tu trabajo: recibir los pedidos de Beltrán, repartirlos al agente correcto con la herramienta crear_tarea, contarle qué hay pendiente y mantener el orden.
+Tu trabajo: recibir los pedidos de Beltrán, repartirlos al agente correcto, contarle qué hay pendiente y mantener el orden.
 Equipo:${EQUIPO}
 
+Estado de los agentes:
+- Vos estás conectado.
+${conGoogle
+    ? '- Eleanor está conectada: con sus herramientas (ver_agenda, crear_evento, buscar_mails, buscar_en_drive, leer_documento) resolvés vos mismo, en su nombre, lo que tenga que ver con agenda, mails y Drive. Decí "Eleanor" cuando corresponda. Ella además revisa el mail sola cada 10 minutos y le avisa a Beltrán.'
+    : '- Eleanor todavía no tiene acceso a Google: sus pedidos quedan como tareas en cola.'}
+- Margaret, Julian, Theo y Charles todavía no ejecutan nada: sus pedidos quedan como tareas en cola (crear_tarea). Decíselo con naturalidad la primera vez que corresponda, sin repetirlo en cada mensaje.
+
 Reglas:
-- Por ahora solo vos estás conectado. Los demás agentes todavía no ejecutan nada: sus tareas quedan en cola hasta que se conecten. Decíselo a Beltrán con naturalidad la primera vez que corresponda, sin repetirlo en cada mensaje.
 - No inventes resultados, datos de mercado, mails ni turnos. Si no sabés algo, decilo.
-- Si un pedido es ambiguo, hacé una sola pregunta corta antes de crear la tarea.
-- Confirmá en una línea cada tarea que creás, nombrando al agente.`;
+- Si un pedido es ambiguo, hacé una sola pregunta corta antes de actuar.
+- Las fechas y horas que usás en las herramientas son de Buenos Aires, en formato AAAA-MM-DDTHH:MM.
+- Antes de agendar, crear_evento ya revisa superposiciones. Si hay choque, contale a Beltrán y proponé otro horario; solo forzá si él lo pide.
+- Confirmá en una línea cada cosa que hacés.`;
 }
 
-const herramientas: Anthropic.Tool[] = [
+const AGENTES_COLA = ['eleanor', 'margaret', 'julian', 'theo', 'charles'];
+
+const herramientasBase: Anthropic.Tool[] = [
   {
     name: 'crear_tarea',
-    description: 'Crea una tarea para un agente de la oficina. Usala cuando Beltrán pida algo que le corresponde a otro agente.',
+    description: 'Crea una tarea en la cola de un agente. Usala para lo que le corresponde a un agente que todavía no está conectado, o para dejar un pendiente registrado.',
     input_schema: {
       type: 'object',
       properties: {
-        agente: { type: 'string', enum: ['eleanor', 'margaret', 'julian', 'theo', 'charles'] },
+        agente: { type: 'string', enum: AGENTES_COLA },
         descripcion: { type: 'string', description: 'Qué tiene que hacer, en una o dos oraciones claras.' },
       },
       required: ['agente', 'descripcion'],
@@ -45,63 +52,153 @@ const herramientas: Anthropic.Tool[] = [
   {
     name: 'ver_tareas',
     description: 'Lista las tareas pendientes o en curso, de un agente o de toda la oficina.',
-    input_schema: {
-      type: 'object',
-      properties: { agente: { type: 'string', enum: ['eleanor', 'margaret', 'julian', 'theo', 'charles'] } },
-    },
+    input_schema: { type: 'object', properties: { agente: { type: 'string', enum: AGENTES_COLA } } },
   },
   {
     name: 'cerrar_tarea',
     description: 'Marca una tarea como hecha o cancelada cuando Beltrán lo indica.',
     input_schema: {
       type: 'object',
-      properties: {
-        id: { type: 'number' },
-        estado: { type: 'string', enum: ['hecha', 'cancelada'] },
-      },
+      properties: { id: { type: 'number' }, estado: { type: 'string', enum: ['hecha', 'cancelada'] } },
       required: ['id', 'estado'],
     },
   },
 ];
 
+const herramientasGoogle: Anthropic.Tool[] = [
+  {
+    name: 'ver_agenda',
+    description: 'Lista los eventos del Google Calendar de Beltrán entre dos fechas (inclusive).',
+    input_schema: {
+      type: 'object',
+      properties: { desde: { type: 'string', description: 'AAAA-MM-DD' }, hasta: { type: 'string', description: 'AAAA-MM-DD' } },
+      required: ['desde', 'hasta'],
+    },
+  },
+  {
+    name: 'crear_evento',
+    description: 'Crea un evento en el Google Calendar de Beltrán. Revisa superposiciones y, si es una visita para ver relojes, aplica sus reglas de horario.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        titulo: { type: 'string' },
+        inicio: { type: 'string', description: 'AAAA-MM-DDTHH:MM, o AAAA-MM-DD si es de todo el día' },
+        fin: { type: 'string', description: 'AAAA-MM-DDTHH:MM. Si falta, dura una hora.' },
+        todo_el_dia: { type: 'boolean' },
+        lugar: { type: 'string' },
+        descripcion: { type: 'string' },
+        es_visita: { type: 'boolean', description: 'true si es una visita de un cliente para ver relojes' },
+        forzar: { type: 'boolean', description: 'true solo si Beltrán pidió agendar igual aunque se superponga' },
+      },
+      required: ['titulo', 'inicio'],
+    },
+  },
+  {
+    name: 'buscar_mails',
+    description: 'Busca mails en la casilla de Beltrán con la sintaxis de búsqueda de Gmail (por ejemplo "from:profesor@udesa.edu.ar newer_than:7d").',
+    input_schema: { type: 'object', properties: { consulta: { type: 'string' } }, required: ['consulta'] },
+  },
+  {
+    name: 'buscar_en_drive',
+    description: 'Busca archivos en el Google Drive de Beltrán por texto.',
+    input_schema: { type: 'object', properties: { consulta: { type: 'string' } }, required: ['consulta'] },
+  },
+  {
+    name: 'leer_documento',
+    description: 'Lee el texto de un documento o planilla de Drive por su id (sale de buscar_en_drive).',
+    input_schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+  },
+];
+
+const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+
+function reglaVisita(inicio: string, fin: string): string | null {
+  const a = horaBA(inicio), b = horaBA(fin);
+  const local = (d: Date) => new Date(d.getTime() - 3 * 3600000); // hora de Buenos Aires
+  const la = local(a), lb = local(b);
+  const dia = la.getUTCDay();
+  const minIni = la.getUTCHours() * 60 + la.getUTCMinutes();
+  const minFin = lb.getUTCHours() * 60 + lb.getUTCMinutes() + (lb.getUTCDate() !== la.getUTCDate() ? 1440 : 0);
+  if (minFin > 18 * 60) return 'Las visitas no pueden terminar después de las 18.';
+  if ((dia === 2 || dia === 4) && minIni < 15 * 60) return `Los ${DIAS[dia]} las visitas son desde las 15.`;
+  return null;
+}
+
 async function ejecutar(nombre: string, input: any): Promise<string> {
   const base = db();
-  if (nombre === 'crear_tarea') {
-    const { data, error } = await base
-      .from('tareas')
-      .insert({ agente: input.agente, descripcion: input.descripcion, origen: 'arthur' })
-      .select('id')
-      .single();
-    if (error) return `Error al crear la tarea: ${error.message}`;
-    await setAhora(input.agente as AgenteId, `Tarea en cola: ${input.descripcion}`);
-    return `Tarea #${data.id} creada para ${input.agente}.`;
-  }
-  if (nombre === 'ver_tareas') {
-    let q = base.from('tareas').select('id, agente, descripcion, estado, creada')
-      .in('estado', ['pendiente', 'en_curso']).order('creada', { ascending: false }).limit(25);
-    if (input?.agente) q = q.eq('agente', input.agente);
-    const { data, error } = await q;
-    if (error) return `Error al leer tareas: ${error.message}`;
-    if (!data.length) return 'No hay tareas pendientes.';
-    return data.map((t) => `#${t.id} · ${t.agente} · ${t.estado} · ${t.descripcion}`).join('\n');
-  }
-  if (nombre === 'cerrar_tarea') {
-    const { error } = await base.from('tareas')
-      .update({ estado: input.estado, actualizada: new Date().toISOString() }).eq('id', input.id);
-    return error ? `Error: ${error.message}` : `Tarea #${input.id} marcada como ${input.estado}.`;
+  try {
+    if (nombre === 'crear_tarea') {
+      const { data, error } = await base.from('tareas')
+        .insert({ agente: input.agente, descripcion: input.descripcion, origen: 'arthur' }).select('id').single();
+      if (error) return `Error al crear la tarea: ${error.message}`;
+      await setAhora(input.agente as AgenteId, `Tarea en cola: ${input.descripcion}`);
+      return `Tarea #${data.id} creada para ${input.agente}.`;
+    }
+    if (nombre === 'ver_tareas') {
+      let q = base.from('tareas').select('id, agente, descripcion, estado, creada')
+        .in('estado', ['pendiente', 'en_curso']).order('creada', { ascending: false }).limit(25);
+      if (input?.agente) q = q.eq('agente', input.agente);
+      const { data, error } = await q;
+      if (error) return `Error al leer tareas: ${error.message}`;
+      if (!data.length) return 'No hay tareas pendientes.';
+      return data.map((t) => `#${t.id} · ${t.agente} · ${t.estado} · ${t.descripcion}`).join('\n');
+    }
+    if (nombre === 'cerrar_tarea') {
+      const { error } = await base.from('tareas')
+        .update({ estado: input.estado, actualizada: new Date().toISOString() }).eq('id', input.id);
+      return error ? `Error: ${error.message}` : `Tarea #${input.id} marcada como ${input.estado}.`;
+    }
+    if (nombre === 'ver_agenda') {
+      const lista = await eventos(`${input.desde}T00:00:00-03:00`, `${input.hasta}T23:59:59-03:00`);
+      await setAhora('eleanor', 'Revisando tu agenda.', 'ok');
+      if (!lista.length) return 'No hay eventos en esas fechas.';
+      return lista.map((e: any) => `${e.todoElDia ? e.inicio + ' (todo el día)' : new Date(e.inicio).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', weekday: 'short', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })} · ${e.titulo}${e.lugar ? ' · ' + e.lugar : ''}`).join('\n');
+    }
+    if (nombre === 'crear_evento') {
+      const todoElDia = !!input.todo_el_dia || input.inicio.length === 10;
+      const fin = input.fin || (todoElDia ? undefined : new Date(horaBA(input.inicio).getTime() + 3600000 - 3 * 3600000).toISOString().slice(0, 16));
+      let lugar = input.lugar;
+      if (input.es_visita && !todoElDia) {
+        const problema = reglaVisita(input.inicio, fin);
+        if (problema) return `No lo agendé: ${problema}`;
+        lugar = lugar || 'Av. Alvear 1491';
+      }
+      if (!todoElDia && !input.forzar) {
+        const choques = await superposiciones(input.inicio, fin);
+        if (choques.length) return `No lo agendé: se superpone con ${choques.map((c: any) => `"${c.titulo}"`).join(', ')}.`;
+      }
+      const link = await crearEvento({ titulo: input.titulo, inicio: input.inicio, fin, todoElDia, lugar, descripcion: input.descripcion });
+      await setAhora('eleanor', `Agendó: ${input.titulo}.`, 'ok');
+      return `Evento creado: ${input.titulo}. ${link || ''}`;
+    }
+    if (nombre === 'buscar_mails') {
+      const res = await buscarCorreos(input.consulta);
+      await setAhora('eleanor', 'Buscando mails que le pediste.', 'ok');
+      if (!res.length) return 'No encontré mails con esa búsqueda.';
+      return res.map((m: any) => `De: ${m.de}\nAsunto: ${m.asunto}\nFecha: ${m.fecha}\n${m.extracto}`).join('\n---\n');
+    }
+    if (nombre === 'buscar_en_drive') {
+      const res = await buscarEnDrive(input.consulta);
+      if (!res.length) return 'No encontré archivos con esa búsqueda.';
+      return res.map((f: any) => `${f.name} · id ${f.id} · ${f.webViewLink}`).join('\n');
+    }
+    if (nombre === 'leer_documento') return await leerDocumento(input.id);
+  } catch (e: any) {
+    return `Error: ${e.message}`;
   }
   return 'Herramienta desconocida.';
 }
 
 export async function responderArthur(chatId: number, texto: string): Promise<string> {
   const base = db();
+  const conGoogle = await googleConectado().catch(() => false);
   const { data: previos } = await base
     .from('mensajes').select('rol, contenido').eq('chat_id', chatId)
     .order('creado', { ascending: false }).limit(20);
 
+  // El mensaje actual ya está guardado: es el último del historial.
   const historial: Anthropic.MessageParam[] = (previos ?? []).reverse()
     .map((m) => ({ role: m.rol as 'user' | 'assistant', content: m.contenido }));
-  // La API necesita que la conversación empiece por el usuario y alterne roles.
   while (historial.length && historial[0].role !== 'user') historial.shift();
   const mensajes: Anthropic.MessageParam[] = [];
   for (const m of historial) {
@@ -109,19 +206,16 @@ export async function responderArthur(chatId: number, texto: string): Promise<st
     if (ultimo && ultimo.role === m.role) ultimo.content = `${ultimo.content}\n${m.content}`;
     else mensajes.push({ ...m });
   }
-  if (mensajes.length && mensajes[mensajes.length - 1].role === 'user') {
-    mensajes[mensajes.length - 1].content = `${mensajes[mensajes.length - 1].content}\n${texto}`;
-  } else {
-    mensajes.push({ role: 'user', content: texto });
-  }
+  if (!mensajes.length || mensajes[mensajes.length - 1].role !== 'user') mensajes.push({ role: 'user', content: texto });
 
   await setAhora('arthur', 'Conversando con Beltrán por Telegram.', 'ok');
+  const herramientas = conGoogle ? [...herramientasBase, ...herramientasGoogle] : herramientasBase;
 
-  for (let vuelta = 0; vuelta < 6; vuelta++) {
+  for (let vuelta = 0; vuelta < 8; vuelta++) {
     const respuesta = await anthropic.messages.create({
       model: MODELO,
-      max_tokens: 1024,
-      system: sistema(),
+      max_tokens: 1200,
+      system: sistema(conGoogle),
       tools: herramientas,
       messages: mensajes,
     });

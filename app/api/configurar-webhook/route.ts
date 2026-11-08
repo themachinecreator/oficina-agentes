@@ -10,7 +10,7 @@ export async function GET(req: Request) {
   const r = await telegram('setWebhook', {
     url: `${origen}/api/telegram`,
     secret_token: secreto,
-    allowed_updates: ['message'],
+    allowed_updates: ['message', 'callback_query'],
     drop_pending_updates: true,
   });
   return Response.json(r.ok
