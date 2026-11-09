@@ -1,5 +1,6 @@
 import { db, setAhora } from './db';
-import { responderCorreo } from './google';
+import { responderCorreo, crearEvento, horaBA } from './google';
+import { enviarDM } from './instagram';
 import { editarMensaje } from './telegram';
 
 export async function crearAprobacion(agente: string, texto: string, tipo = 'general', datos: unknown = null) {
@@ -29,6 +30,27 @@ export async function resolverAprobacion(id: number, aprobado: boolean): Promise
       }
     } else {
       resultado = `No respondí el mail de ${correo?.de || 'ese remitente'}.`;
+    }
+  }
+  if (ap.tipo === 'visita') {
+    const { igUsuario, inicio, reloj, cliente } = ap.datos || {};
+    const fecha = horaBA(inicio).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+    try {
+      if (aprobado) {
+        const fin = new Date(horaBA(inicio).getTime() - 2 * 3600000).toISOString().slice(0, 16);
+        await crearEvento({ titulo: `Visita: ${cliente}${reloj ? ` (${reloj})` : ''}`, inicio, fin, lugar: 'Av. Alvear 1491', descripcion: 'Visita coordinada por Margaret por Instagram.' });
+        const texto = `Querido, te confirmo la visita para el ${fecha} en Av. Alvear 1491. ¡Te esperamos!`;
+        const ids = await enviarDM(igUsuario, texto);
+        await base.from('ig_mensajes').insert({ ig_usuario: igUsuario, rol: 'assistant', texto, mid: ids[0] || null });
+        resultado = `Visita confirmada y agendada: ${cliente}, ${fecha}.`;
+      } else {
+        const texto = 'Querido, lamentablemente ese horario no va a poder ser. ¿Te sirve otro día u horario? Así lo coordinamos.';
+        const ids = await enviarDM(igUsuario, texto);
+        await base.from('ig_mensajes').insert({ ig_usuario: igUsuario, rol: 'assistant', texto, mid: ids[0] || null });
+        resultado = `Le avisé a ${cliente} que busque otro horario.`;
+      }
+    } catch (e: any) {
+      return `No pude completar la visita: ${e.message}`;
     }
   }
   await base.from('aprobaciones')

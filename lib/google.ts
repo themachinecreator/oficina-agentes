@@ -242,3 +242,24 @@ export async function leerDocumento(id: string) {
   const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   return `${meta.name}\n\n${(await r.text()).slice(0, 12000)}`;
 }
+
+export async function exportarPlanillaCsv(id: string) {
+  const token = await accessToken();
+  const r = await fetch(`https://www.googleapis.com/drive/v3/files/${id}/export?mimeType=text/csv`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) throw new Error(`No pude leer la planilla de stock (${r.status}).`);
+  return r.text();
+}
+
+// Horarios libres de un día (hora de Buenos Aires) entre dos horas, en bloques de la duración pedida.
+export async function huecosDelDia(dia: string, desdeHora: number, hastaHora: number, minutos = 60) {
+  const lista = await eventos(`${dia}T00:00:00-03:00`, `${dia}T23:59:59-03:00`);
+  const ocupados = lista.filter((e: any) => !e.todoElDia).map((e: any) => [new Date(e.inicio).getTime(), new Date(e.fin).getTime()]);
+  const libres: string[] = [];
+  for (let m = desdeHora * 60; m + minutos <= hastaHora * 60; m += 30) {
+    const ini = new Date(`${dia}T${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}:00-03:00`).getTime();
+    const fin = ini + minutos * 60000;
+    if (ini < Date.now() + 2 * 3600000) continue;
+    if (!ocupados.some(([a, b]: number[]) => a < fin && b > ini)) libres.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
+  }
+  return libres;
+}
