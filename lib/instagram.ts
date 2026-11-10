@@ -14,12 +14,15 @@ export async function instagramConectado() {
   try { return !!(await token()); } catch { return false; }
 }
 
+// Meta firma los webhooks con la clave de la app de Instagram o con la de la app de Meta, según la configuración.
 export function firmaValida(cuerpo: string, firma: string | null) {
-  const secreto = process.env.INSTAGRAM_APP_SECRET;
-  if (!secreto || !firma) return false;
-  const esperado = 'sha256=' + crypto.createHmac('sha256', secreto).update(cuerpo).digest('hex');
-  const a = Buffer.from(esperado), b = Buffer.from(firma);
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
+  if (!firma) return false;
+  const secretos = [process.env.INSTAGRAM_APP_SECRET, process.env.META_APP_SECRET].filter(Boolean) as string[];
+  return secretos.some((secreto) => {
+    const esperado = 'sha256=' + crypto.createHmac('sha256', secreto).update(cuerpo).digest('hex');
+    const a = Buffer.from(esperado), b = Buffer.from(firma);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  });
 }
 
 export async function enviarDM(destinatario: string, texto: string): Promise<string[]> {
