@@ -38,18 +38,20 @@ export async function resolverAprobacion(id: number, aprobado: boolean): Promise
     const { guionId, url, caption } = ap.datos || {};
     if (aprobado) {
       try {
-        await setAhora('theo', `Publicando el reel del guion #${guionId}.`, 'ok');
+        await setAhora('theo', guionId ? `Publicando el reel del guion #${guionId}.` : 'Publicando el reel.', 'ok');
         const cont = await crearContenedor('REELS', url, true, caption);
         await esperarContenedor(cont, 240000);
         await publicarContenedor(cont);
-        await base.from('guiones').update({ estado: 'publicado', actualizado: new Date().toISOString() }).eq('id', guionId);
-        await base.from('publicaciones').update({ estado: 'publicada' }).like('archivo', `reels/guion-${guionId}-%`);
-        resultado = `Reel del guion #${guionId} publicado en @beltranrelojes.`;
+        if (guionId) {
+          await base.from('guiones').update({ estado: 'publicado', actualizado: new Date().toISOString() }).eq('id', guionId);
+          await base.from('publicaciones').update({ estado: 'publicada' }).like('archivo', `reels/guion-${guionId}-%`);
+        }
+        resultado = guionId ? `Reel del guion #${guionId} publicado en @beltranrelojes.` : 'Reel publicado en @beltranrelojes.';
       } catch (e: any) {
         return `No pude publicar el reel: ${e.message}`;
       }
     } else {
-      resultado = ap.datos?.musica === 'sin' ? 'Listo, el reel queda para que lo publiques vos con tu audio.' : 'No se publica. Pedile a Arthur los cambios que quieras.';
+      resultado = ap.datos?.musica === 'sin' ? 'Listo, el video queda para que lo publiques vos desde Instagram (bajalo del link).' : 'No se publica. Pedile a Arthur los cambios que quieras.';
     }
   }
   if (ap.tipo === 'campana') {

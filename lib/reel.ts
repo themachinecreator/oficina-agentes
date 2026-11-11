@@ -9,6 +9,7 @@ import {
 } from './video';
 import { enviarConBotones, avisar } from './telegram';
 import { crearAprobacion } from './aprobaciones';
+import { sugerirParaVideo } from './julian';
 
 // ---------- Leer el guion de Julian ----------
 type Tramo = { nombre: string; texto: string };
@@ -157,6 +158,65 @@ export async function editarReel(guionId: number, op: OpcionesReel) {
   } catch (e: any) {
     await setAhora('theo', `No pudo editar el guion #${guionId}.`, 'idle');
     await avisar(`Theo no pudo editar el reel del guion #${guionId}: ${e.message}`);
+    throw e;
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+// ---------- Video ya terminado (por ejemplo hecho con IA): formato Reel + marca de agua ----------
+// Toma el video más reciente suelto en "Videos para editar" (o el que contenga `nombre`).
+export async function marcaDeAgua(op: { nombre?: string; descripcion?: string }) {
+  const base = await carpetaRaiz();
+  const raiz = (await listarDrive(`${base ? `'${base}' in parents and ` : ''}mimeType = 'application/vnd.google-apps.folder' and trashed = false`))
+    .filter((f: any) => /videos?\s+para\s+editar/i.test(f.name));
+  if (!raiz.length) throw new Error('No encontré la carpeta "Videos para editar".');
+  const videos = (await listarDrive(`'${raiz[0].id}' in parents and trashed = false and mimeType contains 'video/'`, 'files(id,name,mimeType,createdTime,size)'))
+    .sort((a: any, b: any) => String(b.createdTime).localeCompare(String(a.createdTime)));
+  const v = op.nombre ? videos.find((x: any) => x.name.toLowerCase().includes(op.nombre!.toLowerCase())) : videos[0];
+  if (!v) throw new Error(op.nombre ? `No encontré un video con "${op.nombre}" en "Videos para editar".` : 'No hay videos sueltos en "Videos para editar".');
+  await setAhora('theo', `Poniéndole la marca de agua a ${v.name}.`, 'ok');
+  const dir = await carpetaTemporal();
+  try {
+    const original = await bajarDeDrive(v.id, path.join(dir, 'original'));
+    const info = await ffmpegInfo(['-i', original]);
+    const m = /Video:.*?(\d{3,5})x(\d{3,5})/.exec(info);
+    const w = m ? Number(m[1]) : 1080, h = m ? Number(m[2]) : 1920;
+    const { dur, audio } = await duracionYAudio(original);
+    const vertical = Math.abs(w / h - 9 / 16) < 0.03;
+    const altoVideo = vertical ? 1920 : Math.round((1080 * h) / w / 2) * 2;
+    const abajo = vertical ? 1920 : Math.round((1920 + altoVideo) / 2);
+    const hdr = await filtroHdr(original);
+    // Si no es 9:16, el video va completo al centro sobre una versión desenfocada y oscurecida de sí mismo.
+    const fondo = vertical
+      ? `[0:v]${hdr}scale=1080:1920:flags=lanczos,setsar=1[base]`
+      : `[0:v]${hdr}split[a][b];[a]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=40:6,eq=brightness=-0.12:saturation=0.8[bg];[b]scale=1080:-2:flags=lanczos[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[base]`;
+    const archivoLogo = await logo(path.join(dir, 'logo.png'));
+    if (!archivoLogo) throw new Error('No encontré el logo (PNG suelto en la carpeta Watches).');
+    const yLogo = `${abajo}-h-34`;
+    const filtro = `${fondo};[1:v]scale=150:-1,format=rgba,colorchannelmixer=aa=0.8[lg];[base][lg]overlay=W-w-34:${yLogo}[v]`;
+    const final = path.join(dir, 'final.mp4');
+    await ffmpeg([
+      '-i', original, '-i', archivoLogo, '-filter_complex', filtro, '-map', '[v]', ...(audio ? ['-map', '0:a:0'] : []),
+      '-r', '30', '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-maxrate', '12M', '-bufsize', '24M', '-profile:v', 'high', '-pix_fmt', 'yuv420p',
+      ...(audio ? ['-c:a', 'aac', '-b:a', '192k'] : []), '-movflags', '+faststart', final,
+    ]);
+    const nombre = `reels/marca-${Date.now()}.mp4`;
+    const url = await subirPublicacion(final, nombre);
+    await db().from('publicaciones').insert({ tipo: 'reel', reloj: v.name, archivo: nombre, estado: 'para aprobar' });
+    await setAhora('julian', 'Mirando el video de Theo para sugerir mejoras.', 'ok');
+    const desc = `${op.descripcion || 'Video publicitario de un reloj'}. Dura ${Math.round(dur)} s, formato vertical para Reels, ${audio ? 'con audio propio' : 'sin audio'}, logo chico abajo a la derecha.`;
+    const ideas = await sugerirParaVideo(desc).catch(() => '');
+    await setAhora('julian', 'Le pasó sus sugerencias a Theo.', 'ok');
+    const texto = `Theo — video listo con tu marca de agua (${Math.round(dur)} s, formato Reel)\nVer video: ${url}${ideas ? `\n\nJulian sugiere:\n${ideas}` : ''}`;
+    const id = await crearAprobacion('theo', texto, 'reel', { url, caption: '', musica: 'sin' });
+    const msg = await enviarConBotones(texto, [{ texto: 'Lo publico yo', dato: `apr:${id}:no` }]);
+    if (msg) await db().from('aprobaciones').update({ telegram_msg_id: msg }).eq('id', id);
+    await setAhora('theo', 'Video con marca de agua listo para que lo publiques.', 'ok');
+    return url;
+  } catch (e: any) {
+    await setAhora('theo', 'No pudo terminar la marca de agua.', 'idle');
+    await avisar(`Theo no pudo ponerle la marca de agua: ${e.message}`);
     throw e;
   } finally {
     await fs.rm(dir, { recursive: true, force: true }).catch(() => {});

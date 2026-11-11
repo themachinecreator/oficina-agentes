@@ -41,6 +41,7 @@ Guiones ya propuestos (no repitas temas):
 ${(previos.data || []).map((g) => `- ${g.titulo} [${g.estado}]`).join('\n') || 'ninguno todavía'}`;
 }
 
+export const SISTEMA_JULIAN = () => SISTEMA;
 const SISTEMA = `Sos Julian Hart, creador de contenido y director creativo de beltranrelojes, la cuenta de Instagram del negocio de relojes de Beltrán (unos 3.200 seguidores, Argentina). Curioso y apasionado por la historia relojera.
 
 Lo que funciona en la cuenta: videos cortos de historia de marcas y modelos ("La dinastía Tudor"), datos curiosos con pregunta al público ("¿Ustedes lo sabían? Citizen Bullhead") y piezas históricas. El dato con pregunta es lo que más comentarios genera. Textos de publicación cortos. Beltrán quiere mantener eso y también innovar con formatos nuevos.
@@ -127,4 +128,13 @@ export async function marcarGuion(id: number, estado: string) {
 export async function listarGuiones() {
   const { data } = await db().from('guiones').select('id, titulo, estado').in('estado', ['propuesto', 'grabado', 'editado']).order('creado', { ascending: false }).limit(15);
   return (data || []).map((g) => `#${g.id} · ${g.estado} · ${g.titulo}`).join('\n') || 'No hay guiones pendientes.';
+}
+
+// Julian mira un video ya armado (por su descripción) y propone qué sumarle, sin reescribirlo.
+export async function sugerirParaVideo(descripcion: string) {
+  const r = await anthropic.messages.create({
+    model: MODELO_JULIAN, max_tokens: 900, system: SISTEMA,
+    messages: [{ role: 'user', content: `Theo te muestra este video ya editado para publicar en @beltranrelojes:\n${descripcion}\n\nPropone en pocas líneas, en texto plano para Telegram, qué le agregarías para que rinda más: gancho de texto en los primeros 2 segundos (dame el texto exacto), textos en pantalla, tipo de audio o música, y el texto de la publicación con hashtags (siempre #beltranrelojes). Concreto y breve.` }],
+  });
+  return r.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n').trim().replace(/\*\*|^#+\s*/gm, '');
 }
