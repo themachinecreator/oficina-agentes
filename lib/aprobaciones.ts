@@ -53,8 +53,14 @@ export async function resolverAprobacion(id: number, aprobado: boolean): Promise
     }
   }
   if (ap.tipo === 'campana') {
-    const { campanaId } = ap.datos || {};
-    if (aprobado) {
+    const { campanaId, manual } = ap.datos || {};
+    if (aprobado && manual) {
+      const { data: k } = await base.from('campanas').select('dias').eq('id', campanaId).maybeSingle();
+      const inicio = new Date();
+      await base.from('campanas').update({ estado: 'activa', inicio: inicio.toISOString(), fin: new Date(inicio.getTime() + Number(k?.dias || 7) * 86400000).toISOString() }).eq('id', campanaId);
+      await setAhora('victoria', `Siguiendo el anuncio #${campanaId}.`, 'ok');
+      resultado = `Anotado: anuncio #${campanaId} en marcha. Victoria va a mirar cómo rinde la publicación en su informe.`;
+    } else if (aprobado) {
       try {
         await setAhora('victoria', `Lanzando el anuncio #${campanaId}.`, 'ok');
         resultado = await lanzarCampana(campanaId);

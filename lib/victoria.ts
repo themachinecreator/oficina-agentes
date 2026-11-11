@@ -59,13 +59,17 @@ const herramientas: Anthropic.Tool[] = [
   { name: 'pausar_campana', description: 'Pausa una campaña que no está funcionando.', input_schema: { type: 'object', properties: { id: { type: 'number' } }, required: ['id'] } },
 ];
 
+// Meta no habilita la API de anuncios sin verificar el negocio: si no hay acceso, la campaña la lanza Beltrán
+// desde la app de Instagram con las indicaciones exactas de Victoria (modo manual).
 async function proponer(input: any) {
-  const c = await cuentaAds().catch((e) => { throw new Error(`Cuenta publicitaria: ${e.message}`); });
-  if (!c) return 'Todavía no está conectada la cuenta publicitaria: dejá la propuesta escrita en el informe para cuando esté.';
-  const g = await gastoDelMes();
-  const { data: propuestas } = await db().from('campanas').select('presupuesto_usd').eq('estado', 'propuesta');
-  const enEspera = (propuestas || []).reduce((s, x) => s + Number(x.presupuesto_usd), 0);
-  const disponible = (g?.disponibleUsd ?? TOPE_MENSUAL_USD) - enEspera;
+  const c = await cuentaAds().catch(() => null);
+  const manual = !c;
+  const g = manual ? null : await gastoDelMes().catch(() => null);
+  const mes = new Date().toISOString().slice(0, 7);
+  const { data: delMes } = await db().from('campanas').select('presupuesto_usd, estado, creado').in('estado', ['propuesta', 'activa', 'terminada', 'pausada']);
+  const usadoManual = (delMes || []).filter((x) => String(x.creado).startsWith(mes) && x.estado !== 'propuesta').reduce((s, x) => s + Number(x.presupuesto_usd), 0);
+  const enEspera = (delMes || []).filter((x) => x.estado === 'propuesta').reduce((s, x) => s + Number(x.presupuesto_usd), 0);
+  const disponible = (g ? g.disponibleUsd : TOPE_MENSUAL_USD - usadoManual) - enEspera;
   if (input.presupuesto_usd > disponible + 0.01) return `No alcanza: quedan ${Math.max(0, disponible).toFixed(2)} USD del tope de ${TOPE_MENSUAL_USD} este mes (contando propuestas sin aprobar). Ajustá el monto.`;
   if (input.presupuesto_usd < 3 || input.dias < 2) return 'Muy chico: mínimo 3 USD y 2 días para que Meta aprenda algo.';
   const post = await graph(`${input.media_id}?fields=permalink,caption`).catch(() => null);
@@ -84,8 +88,19 @@ async function proponer(input: any) {
     `Público: ${p.edad_min || 25}-${p.edad_max || 60} años, ${p.genero && p.genero !== 'todos' ? p.genero : 'hombres y mujeres'}, ${donde}${p.intereses?.length ? `; intereses: ${p.intereses.map((i) => i.name).join(', ')}` : ''}`,
     '', input.por_que,
   ].join('\n');
-  const id = await crearAprobacion('victoria', texto, 'campana', { campanaId: fila?.id });
-  const msg = await enviarConBotones(texto, [{ texto: 'Lanzar', dato: `apr:${id}:si` }, { texto: 'No', dato: `apr:${id}:no` }]);
+  const pasos = manual ? [
+    '', 'Cómo lanzarlo (2 minutos, desde la app de Instagram):',
+    `1. Abrí la publicación: ${post.permalink} y tocá "Promocionar".`,
+    `2. Objetivo: ${input.objetivo === 'mensajes' ? '"Más mensajes"' : '"Más visitas al perfil"'}.`,
+    `3. Público: "Crear el tuyo" → ${donde}; edad ${p.edad_min || 25}-${p.edad_max || 60}; ${p.genero && p.genero !== 'todos' ? p.genero : 'todos los géneros'}${p.intereses?.length ? `; intereses: ${p.intereses.map((i) => i.name).join(', ')}` : ''}.`,
+    `4. Presupuesto: ${(input.presupuesto_usd / input.dias).toFixed(2)} USD por día durante ${input.dias} días (total ${input.presupuesto_usd} USD).`,
+    '5. Revisá y tocá "Promocionar publicación".',
+  ].join('\n') : '';
+  const textoFinal = texto + pasos;
+  const id = await crearAprobacion('victoria', textoFinal, 'campana', { campanaId: fila?.id, manual });
+  const msg = await enviarConBotones(textoFinal, manual
+    ? [{ texto: 'Ya lo lancé', dato: `apr:${id}:si` }, { texto: 'No lo hago', dato: `apr:${id}:no` }]
+    : [{ texto: 'Lanzar', dato: `apr:${id}:si` }, { texto: 'No', dato: `apr:${id}:no` }]);
   if (msg) await db().from('aprobaciones').update({ telegram_msg_id: msg }).eq('id', id);
   await setAhora('victoria', `Propuso el anuncio #${fila?.id}: espera tu aprobación.`, 'wait');
   return `Propuesta #${fila?.id} enviada a Beltrán para aprobar.`;
@@ -120,7 +135,7 @@ const SISTEMA = () => `Sos Victoria Ashford, estratega de marketing de beltranre
 Fecha en Buenos Aires: ${fechaBA()}.
 Tu objetivo: que la cuenta crezca y que lleguen más compradores por privado (ahí contesta Margaret).
 El equipo con el que trabajás: Julian Hart escribe ideas y guiones (Beltrán los graba), Theo Lang edita los reels y publica historias del stock cada dos días. Vos marcás la dirección con los números.
-Presupuesto de anuncios: hasta ${TOPE_MENSUAL_USD} USD por mes, y cada campaña la aprueba Beltrán. Repartilo entre ventas (anuncios de relojes del stock con objetivo mensajes) y crecimiento (los reels que mejor funcionan, objetivo seguidores). Preferí pocas campañas chicas para probar, de 3 a 7 días, y mirá el costo por resultado antes de volver a invertir.
+Presupuesto de anuncios: hasta ${TOPE_MENSUAL_USD} USD por mes, y cada campaña la aprueba Beltrán. Si la cuenta publicitaria no está conectada por API, proponer_campana igual funciona: Beltrán la lanza desde la app de Instagram con tus indicaciones exactas y te avisa con un botón. Repartilo entre ventas (anuncios de relojes del stock con objetivo mensajes) y crecimiento (los reels que mejor funcionan, objetivo seguidores). Preferí pocas campañas chicas para probar, de 3 a 7 días, y mirá el costo por resultado antes de volver a invertir.
 Reglas:
 - Basate en los datos de tus herramientas; nunca inventes cifras. Si falta un dato (por ejemplo estadísticas sin permiso), decilo.
 - Para anunciar usá publicaciones existentes de la cuenta (ver_cuenta da los ids). Para ventas, solo relojes que estén en ver_stock.
