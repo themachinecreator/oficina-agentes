@@ -223,7 +223,15 @@ const AGENTS = {
     puede:'Sigue precios y publicaciones en Chrono24, reloje.ar y cuentas de la competencia. Te manda un reporte semanal y alertas de oportunidades.',
     limite:'Solo lee. Nunca compra ni contacta a nadie.',
     look:{suit:0x3a3d42, shirt:0xe8e8e2, tie:0x1e2f4f, hair:0xcfae6c, skin:0xeac4a4},
-    seat:{x:8.5, z:5.8, r:PI} }
+    seat:{x:8.5, z:5.8, r:PI} },
+  henry: { name:'Henry Caldwell', cargo:'Contador', estado:'idle',
+    ahora:'Todavía no está conectado.',
+    perso:'Meticuloso y prudente. Cuenta dos veces antes de opinar.',
+    hoy:[],
+    puede:'Registra compras, ventas y gastos en dólares en la planilla Watches, arma el resumen mensual y te dice cuánto ganarías con cada oferta.',
+    limite:'Solo números internos. No hace temas impositivos ni presentaciones.',
+    look:{suit:0x3b2f2a, shirt:0xf1ece2, tie:0x6b4f1d, hair:0x8c8a85, skin:0xe0b694},
+    seat:{x:1.6, z:6.7, r:PI} }
 };
 const ESTADO_TXT = { ok:'Trabajando', wait:'Espera tu aprobación', idle:'Libre' };
 
@@ -878,6 +886,15 @@ lampLight(10.4, 2.0, -2.1, 0xfff3e0);
   }
 })();
 plant(11.2, 7.2, 1.1);
+
+// Contaduría (Henry)
+desk(AGENTS.henry.seat, 1.7);
+chair(AGENTS.henry.seat, MAT.leather);
+box(.34, .07, .26, mat(0x2a3f2f), 1.25, .82, 5.75);          // libro mayor
+box(.3, .012, .22, MAT.paper, 1.25, .86, 5.75, null, false);
+box(.2, .05, .26, mat(0x3a3a3a, { metalness:.3 }), 1.9, .81, 5.7); // calculadora
+box(.7, 1.1, .45, MAT.mahog, 3.0, .55, 7.6);                 // archivero
+for (let i=0;i<3;i++) box(.5, .02, .02, MAT.brass, 3.0, .3 + i*.33, 7.37, null, false);
 plant(-3.0, 7.3, .9);
 plant(3.4, -7.3, 1);
 plant(-11.2, 7.3, 1);

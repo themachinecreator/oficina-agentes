@@ -4,6 +4,7 @@ const SCOPES = [
   'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/calendar',
   'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/spreadsheets',
   'openid',
   'email',
 ];
@@ -262,4 +263,37 @@ export async function huecosDelDia(dia: string, desdeHora: number, hastaHora: nu
     if (!ocupados.some(([a, b]: number[]) => a < fin && b > ini)) libres.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
   }
   return libres;
+}
+
+
+// ---------- Sheets (Henry) ----------
+const SHEETS = 'https://sheets.googleapis.com/v4/spreadsheets';
+
+export async function primeraHoja(id: string) {
+  const meta = await gapi(`${SHEETS}/${id}?fields=sheets.properties`);
+  return meta.sheets[0].properties.title as string;
+}
+
+export async function leerRango(id: string, rango: string, render: 'UNFORMATTED_VALUE' | 'FORMULA' = 'UNFORMATTED_VALUE') {
+  const p = new URLSearchParams({ valueRenderOption: render, dateTimeRenderOption: 'FORMATTED_STRING' });
+  const d = await gapi(`${SHEETS}/${id}/values/${encodeURIComponent(rango)}?${p}`);
+  return (d.values || []) as any[][];
+}
+
+export async function escribirRango(id: string, rango: string, valores: any[][]) {
+  await gapi(`${SHEETS}/${id}/values/${encodeURIComponent(rango)}?valueInputOption=USER_ENTERED`, {
+    method: 'PUT', body: JSON.stringify({ range: rango, values: valores }),
+  });
+}
+
+export async function agregarFila(id: string, hoja: string, fila: any[]) {
+  await gapi(`${SHEETS}/${id}/values/${encodeURIComponent(`'${hoja}'!A1`)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`, {
+    method: 'POST', body: JSON.stringify({ values: [fila] }),
+  });
+}
+
+export function columnaLetra(i: number) {
+  let s = ''; i += 1;
+  while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); }
+  return s;
 }

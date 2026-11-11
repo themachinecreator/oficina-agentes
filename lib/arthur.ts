@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { db, setAhora, AgenteId } from './db';
 import { anthropic, MODELO, fechaBA, PERFIL_BELTRAN } from './claude';
+import { registrarVenta, registrarCompra, registrarGasto, resumenFinanzas } from './henry';
 import { googleConectado, eventos, crearEvento, superposiciones, buscarCorreos, buscarEnDrive, leerDocumento, horaBA } from './google';
 
 const EQUIPO = `
@@ -8,7 +9,8 @@ const EQUIPO = `
 - margaret (Margaret Ellsworth), recepcionista de beltranrelojes: responde mensajes directos de Instagram con info y precio publicado. Las ofertas distintas al precio se derivan a Beltrán. Las visitas se confirman con aprobación de Beltrán.
 - julian (Julian Hart), creador de contenido: ideas y guiones de videos cortos informativos, textos e historias.
 - theo (Theo Lang), editor de video: edita lo que graba Beltrán, se lo muestra antes de publicar, sube historias de stock cada dos días.
-- charles (Charles Pemberton), analista de mercado: precios en Chrono24, reloje.ar y competencia. Solo lee.`;
+- charles (Charles Pemberton), analista de mercado: precios en Chrono24, reloje.ar y competencia. Solo lee.
+- henry (Henry Caldwell), contador interno: registra compras, ventas y gastos en dólares en la planilla Watches y arma los resúmenes. No hace temas impositivos.`;
 
 function sistema(conGoogle: boolean) {
   return `Sos Arthur Whitmore, jefe de la oficina de agentes de IA de Beltrán. La oficina trabaja para su negocio de relojes y como secretaría personal.
@@ -24,6 +26,7 @@ Estado de los agentes:
 ${conGoogle
     ? '- Eleanor está conectada: con sus herramientas (ver_agenda, crear_evento, buscar_mails, buscar_en_drive, leer_documento) resolvés vos mismo, en su nombre, lo que tenga que ver con agenda, mails y Drive. Decí "Eleanor" cuando corresponda. Ella además revisa el mail sola cada 10 minutos y le avisa a Beltrán.'
     : '- Eleanor todavía no tiene acceso a Google: sus pedidos quedan como tareas en cola.'}
+${conGoogle ? '- Henry está conectado: cuando Beltrán cuente una venta, una compra o un gasto, o pregunte cómo viene el negocio, usá registrar_venta, registrar_compra, registrar_gasto o resumen_finanzas en su nombre. Todo en USD. Si el resultado dice que hay varios relojes posibles, preguntale a Beltrán cuál antes de reintentar. Nunca inventes costos ni precios.' : ''}
 - Margaret, Julian, Theo y Charles todavía no ejecutan nada: sus pedidos quedan como tareas en cola (crear_tarea). Decíselo con naturalidad la primera vez que corresponda, sin repetirlo en cada mensaje.
 
 Reglas:
@@ -34,7 +37,7 @@ Reglas:
 - Confirmá en una línea cada cosa que hacés.`;
 }
 
-const AGENTES_COLA = ['eleanor', 'margaret', 'julian', 'theo', 'charles'];
+const AGENTES_COLA = ['eleanor', 'margaret', 'julian', 'theo', 'charles', 'henry'];
 
 const herramientasBase: Anthropic.Tool[] = [
   {
@@ -107,6 +110,56 @@ const herramientasGoogle: Anthropic.Tool[] = [
     name: 'leer_documento',
     description: 'Lee el texto de un documento o planilla de Drive por su id (sale de buscar_en_drive).',
     input_schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+  },
+];
+
+const herramientasHenry: Anthropic.Tool[] = [
+  {
+    name: 'registrar_venta',
+    description: 'Registra la venta de un reloj de la planilla Watches: precio de venta, ganancia y fecha.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        reloj: { type: 'string', description: 'Marca, modelo y/o referencia, más algún detalle si hay piezas iguales (ej. "Tudor 7996 dial blanco")' },
+        precio: { type: 'number', description: 'Precio de venta en USD' },
+        costo_de_lista: { type: 'number', description: 'Precio de lista en USD, si sirve para distinguir dos piezas iguales' },
+        fecha: { type: 'string', description: 'AAAA-MM-DD; si falta, hoy' },
+      },
+      required: ['reloj', 'precio'],
+    },
+  },
+  {
+    name: 'registrar_compra',
+    description: 'Agrega un reloj comprado a la planilla Watches con su costo.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        marca: { type: 'string' }, modelo: { type: 'string' }, referencia: { type: 'string' }, anio: { type: 'string' },
+        precio_compra: { type: 'number', description: 'USD' }, gastos: { type: 'number', description: 'Service, envío, etc. en USD' },
+        precio_lista: { type: 'number', description: 'Precio al que lo va a publicar, en USD' },
+        detalle: { type: 'string', description: 'Lo que lo distingue: dial, malla, estado' },
+        fecha: { type: 'string', description: 'AAAA-MM-DD; si falta, hoy' },
+      },
+      required: ['marca', 'modelo', 'precio_compra'],
+    },
+  },
+  {
+    name: 'registrar_gasto',
+    description: 'Anota un gasto del negocio en USD (oficina, suscripciones, envíos, publicidad, etc.).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        concepto: { type: 'string' }, monto: { type: 'number' },
+        categoria: { type: 'string', enum: ['oficina', 'suscripciones', 'envios', 'publicidad', 'service', 'otros'] },
+        fecha: { type: 'string', description: 'AAAA-MM-DD; si falta, hoy' },
+      },
+      required: ['concepto', 'monto'],
+    },
+  },
+  {
+    name: 'resumen_finanzas',
+    description: 'Resumen del mes: ventas, ganancia, gastos, capital en stock, retorno y relojes estancados.',
+    input_schema: { type: 'object', properties: { mes: { type: 'string', description: 'AAAA-MM; si falta, el mes actual' } } },
   },
 ];
 
@@ -183,6 +236,10 @@ async function ejecutar(nombre: string, input: any): Promise<string> {
       return res.map((f: any) => `${f.name} · id ${f.id} · ${f.webViewLink}`).join('\n');
     }
     if (nombre === 'leer_documento') return await leerDocumento(input.id);
+    if (nombre === 'registrar_venta') return await registrarVenta(input);
+    if (nombre === 'registrar_compra') return await registrarCompra(input);
+    if (nombre === 'registrar_gasto') return await registrarGasto(input);
+    if (nombre === 'resumen_finanzas') return await resumenFinanzas(input?.mes);
   } catch (e: any) {
     return `Error: ${e.message}`;
   }
@@ -209,7 +266,7 @@ export async function responderArthur(chatId: number, texto: string): Promise<st
   if (!mensajes.length || mensajes[mensajes.length - 1].role !== 'user') mensajes.push({ role: 'user', content: texto });
 
   await setAhora('arthur', 'Conversando con Beltrán por Telegram.', 'ok');
-  const herramientas = conGoogle ? [...herramientasBase, ...herramientasGoogle] : herramientasBase;
+  const herramientas = conGoogle ? [...herramientasBase, ...herramientasGoogle, ...herramientasHenry] : herramientasBase;
 
   for (let vuelta = 0; vuelta < 8; vuelta++) {
     const respuesta = await anthropic.messages.create({

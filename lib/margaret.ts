@@ -6,6 +6,7 @@ import { huecosDelDia, horaBA } from './google';
 import { enviarDM, nombreDe } from './instagram';
 import { avisar, enviarConBotones } from './telegram';
 import { crearAprobacion } from './aprobaciones';
+import { analizarOferta } from './henry';
 
 const DIRECCION = 'Av. Alvear 1491';
 
@@ -115,7 +116,9 @@ async function ejecutar(nombre: string, input: any, igUsuario: string, cliente: 
       return 'Pedido enviado a Beltrán. Decile al cliente que se la confirmás a la brevedad.';
     }
     if (nombre === 'derivar_oferta') {
-      await avisar(`Margaret: oferta para vos\n\n${cliente || 'Un cliente'}${input.reloj ? ` por ${input.reloj}` : ''}: ${input.detalle}\n\nRespondele directamente por Instagram.`);
+      const monto = Number(String(input.detalle).match(/(\d[\d.,]*)\s*(usd|u\$s|dólares|dolares)?/i)?.[1]?.replace(/[.,](?=\d{3}\b)/g, '') || NaN);
+      const cuenta = input.reloj && isFinite(monto) ? await analizarOferta(input.reloj, monto).catch(() => null) : null;
+      await avisar(`Margaret: oferta para vos\n\n${cliente || 'Un cliente'}${input.reloj ? ` por ${input.reloj}` : ''}: ${input.detalle}${cuenta ? `\n\n${cuenta}` : ''}\n\nRespondele directamente por Instagram.`);
       await setAhora('margaret', `Derivó una oferta${input.reloj ? ` por ${input.reloj}` : ''}.`, 'ok');
       return 'Beltrán ya fue avisado.';
     }
