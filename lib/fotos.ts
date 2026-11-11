@@ -24,7 +24,9 @@ export async function carpetasRelojes(): Promise<CarpetaReloj[]> {
     .filter((s) => !especiales.test(String(s.name).trim()));
   const carpetas: CarpetaReloj[] = [];
   for (const s of subs) {
-    const archivos = await listarDrive(`'${s.id}' in parents and trashed = false and (mimeType contains 'image/' or mimeType contains 'video/')`);
+    const archivos = await listarDrive(`'${s.id}' in parents and trashed = false and (mimeType contains 'image/' or mimeType contains 'video/')`, 'files(id,name,mimeType,size)');
+    // Primero el archivo más pesado: el original del celular antes que una copia comprimida (por ejemplo de WhatsApp).
+    archivos.sort((a: any, b: any) => Number(b.size || 0) - Number(a.size || 0));
     const fotos = archivos.filter((a) => a.mimeType.startsWith('image/')).map((a) => a.id);
     const videos = archivos.filter((a) => a.mimeType.startsWith('video/')).map((a) => a.id);
     if (fotos.length || videos.length) carpetas.push({ id: s.id, nombre: s.name, fotos, videos });

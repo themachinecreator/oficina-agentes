@@ -4,7 +4,7 @@ import { db, setAhora } from './db';
 import { listarDrive } from './google';
 import { carpetaRaiz } from './fotos';
 import {
-  ffmpeg, ffmpegInfo, duracionYAudio, carpetaTemporal, bajarDeDrive, cancionAlAzar, logo,
+  ffmpeg, ffmpegInfo, filtroHdr, duracionYAudio, carpetaTemporal, bajarDeDrive, cancionAlAzar, logo,
   subirPublicacion, textoEnArchivo, FUENTE_FUERTE,
 } from './video';
 import { enviarConBotones, avisar } from './telegram';
@@ -98,10 +98,11 @@ export async function editarReel(guionId: number, op: OpcionesReel) {
       const { desde, hasta } = audio ? await tramoConVoz(original, dur) : { desde: 0, hasta: dur };
       const salida = path.join(dir, `parte${k}.mp4`);
       const largo = hasta - desde;
+      const hdr = await filtroHdr(original);
       await ffmpeg([
         '-ss', desde.toFixed(2), '-t', largo.toFixed(2), '-i', original,
         '-f', 'lavfi', '-t', largo.toFixed(2), '-i', 'anullsrc=r=44100:cl=stereo',
-        '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,fps=30,setsar=1',
+        '-vf', `${hdr}scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,fps=30,setsar=1`,
         '-map', '0:v:0', '-map', audio ? '0:a:0' : '1:a:0',
         '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-c:a', 'aac', '-ar', '44100', '-ac', '2', salida,
       ]);

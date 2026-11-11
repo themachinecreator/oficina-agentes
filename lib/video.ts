@@ -96,3 +96,10 @@ export async function textoEnArchivo(dir: string, nombre: string, texto: string)
   await fs.writeFile(f, texto, 'utf8');
   return f.replace(/\\/g, '/').replace(/:/g, '\\:');
 }
+
+// Los videos del iPhone vienen en HDR (HLG o PQ): sin convertirlos a SDR se ven lavados en Instagram.
+export async function filtroHdr(archivo: string) {
+  const info = await ffmpegInfo(['-i', archivo]);
+  if (!/arib-std-b67|smpte2084|bt2020/.test(info)) return '';
+  return 'zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p,';
+}

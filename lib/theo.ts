@@ -2,7 +2,7 @@ import path from 'path';
 import { promises as fs } from 'fs';
 import { db, setAhora } from './db';
 import { stockDisponible, carpetaDelReloj, Reloj } from './stock';
-import { ffmpeg, carpetaTemporal, bajarDeDrive, cancionAlAzar, subirPublicacion, textoEnArchivo, FUENTE_FUERTE, FUENTE_NORMAL } from './video';
+import { ffmpeg, filtroHdr, carpetaTemporal, bajarDeDrive, cancionAlAzar, subirPublicacion, textoEnArchivo, FUENTE_FUERTE, FUENTE_NORMAL } from './video';
 import { crearContenedor, esperarContenedor, publicarContenedor } from './publicar';
 
 const nombreReloj = (r: Reloj) => `${r['Marca'] || ''} ${r['Modelo'] || ''}`.replace(/\s+/g, ' ').trim();
@@ -27,8 +27,9 @@ export async function armarHistoria(r: Reloj) {
     const f1 = FUENTE_FUERTE.replace(/\\/g, '/').replace(/:/g, '\\:');
     const f2 = FUENTE_NORMAL.replace(/\\/g, '/').replace(/:/g, '\\:');
 
+    const hdr = esVideo ? await filtroHdr(entrada) : '';
     const base = esVideo
-      ? '[0:v]scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,unsharp=5:5:0.6:5:5:0,setsar=1,fps=30,trim=0:15,setpts=PTS-STARTPTS'
+      ? `[0:v]${hdr}scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,unsharp=5:5:0.3:5:5:0,setsar=1,fps=30,trim=0:15,setpts=PTS-STARTPTS`
       : "[0:v]scale=1240:2204:force_original_aspect_ratio=increase,crop=1240:2204,zoompan=z='min(zoom+0.0007,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=240:s=1080x1920:fps=30,setsar=1";
     const ficha = [
       'drawbox=x=0:y=ih-600:w=iw:h=600:color=black@0.5:t=fill',
@@ -38,7 +39,7 @@ export async function armarHistoria(r: Reloj) {
       `drawtext=fontfile='${f2}':textfile='${t4}':fontsize=38:fontcolor=white@0.85:x=(w-tw)/2:y=h-170`,
     ].filter(Boolean).join(',');
     const salida = path.join(dir, 'historia.mp4');
-    const entradaArgs = esVideo ? ['-i', entrada] : ['-loop', '1', '-t', '8', '-i', entrada];
+    const entradaArgs = esVideo ? ['-t', '15', '-i', entrada] : ['-loop', '1', '-t', '8', '-i', entrada];
     await ffmpeg([
       ...entradaArgs, '-stream_loop', '-1', '-i', musica,
       '-filter_complex', `${base},${ficha}[v];[1:a]volume=0.8,afade=t=in:d=0.6[a]`,
