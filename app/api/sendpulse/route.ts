@@ -6,10 +6,11 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
 // SendPulse no firma sus webhooks: la URL lleva una clave secreta (?k=...).
-function textoDe(ev: any): string {
+// En los mensajes salientes "last_message" es el último mensaje del cliente: solo lo usamos para los entrantes.
+function textoDe(ev: any, entrante: boolean): string {
   const m = ev?.info?.message?.channel_data?.message ?? ev?.info?.message ?? {};
-  const t = typeof m.text === 'string' ? m.text : m.text?.body;
-  return String(t || ev?.contact?.last_message || '').trim();
+  const t = typeof m.text === 'string' ? m.text : (m.text?.body ?? m.message?.text ?? (typeof m.data?.text === 'string' ? m.data.text : ''));
+  return String(t || (entrante ? ev?.contact?.last_message : '') || '').trim();
 }
 
 export async function POST(req: Request) {
@@ -25,7 +26,7 @@ export async function POST(req: Request) {
   for (const ev of eventos) {
     if (ev?.service && ev.service !== 'instagram') continue;
     const id = String(ev?.contact?.id || '').trim();
-    const texto = textoDe(ev);
+    const texto = textoDe(ev, ev?.title === 'incoming_message');
     if (!id || !texto) continue;
     const cliente = `sp_${id}`;
 
@@ -35,7 +36,7 @@ export async function POST(req: Request) {
         .gte('creado', new Date(Date.now() - 3 * 60000).toISOString()).limit(5);
       const { data: textos } = await base.from('ig_mensajes').select('texto').eq('ig_usuario', cliente).eq('rol', 'assistant')
         .gte('creado', new Date(Date.now() - 3 * 60000).toISOString());
-      const esMargaret = (propio?.length || 0) > 0 && (textos || []).some((r) => r.texto.includes(texto.slice(0, 200)));
+      const esMargaret = (propio?.length || 0) > 0 && (textos || []).some((r) => r.texto.includes(texto.slice(0, 200)) || texto.includes(r.texto.slice(0, 200)));
       if (!esMargaret) {
         await base.from('ig_mensajes').insert({ ig_usuario: cliente, rol: 'assistant', texto });
         await base.from('credenciales').upsert({ clave: `ig_pausa_${cliente}`, valor: String(Date.now() + 12 * 3600000), actualizado: new Date().toISOString() });
