@@ -101,9 +101,9 @@ export async function editarReel(guionId: number, op: OpcionesReel) {
       await ffmpeg([
         '-ss', desde.toFixed(2), '-t', largo.toFixed(2), '-i', original,
         '-f', 'lavfi', '-t', largo.toFixed(2), '-i', 'anullsrc=r=44100:cl=stereo',
-        '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30,setsar=1',
+        '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,fps=30,setsar=1',
         '-map', '0:v:0', '-map', audio ? '0:a:0' : '1:a:0',
-        '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '20', '-c:a', 'aac', '-ar', '44100', '-ac', '2', salida,
+        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-c:a', 'aac', '-ar', '44100', '-ac', '2', salida,
       ]);
       await fs.rm(original, { force: true });
       partes.push(salida);
@@ -137,7 +137,7 @@ export async function editarReel(guionId: number, op: OpcionesReel) {
     const final = path.join(dir, 'reel.mp4');
     await ffmpeg([
       ...entradas, '-filter_complex', video + audioF, '-map', ultimoV, '-map', '[a]', '-t', t.toFixed(2),
-      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', final,
+      '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-maxrate', '12M', '-bufsize', '24M', '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', final,
     ]);
     const nombre = `reels/guion-${guionId}-${Date.now()}.mp4`;
     const url = await subirPublicacion(final, nombre);

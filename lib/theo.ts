@@ -28,7 +28,7 @@ export async function armarHistoria(r: Reloj) {
     const f2 = FUENTE_NORMAL.replace(/\\/g, '/').replace(/:/g, '\\:');
 
     const base = esVideo
-      ? '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps=30,trim=0:15,setpts=PTS-STARTPTS'
+      ? '[0:v]scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,unsharp=5:5:0.6:5:5:0,setsar=1,fps=30,trim=0:15,setpts=PTS-STARTPTS'
       : "[0:v]scale=1240:2204:force_original_aspect_ratio=increase,crop=1240:2204,zoompan=z='min(zoom+0.0007,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=240:s=1080x1920:fps=30,setsar=1";
     const ficha = [
       'drawbox=x=0:y=ih-600:w=iw:h=600:color=black@0.5:t=fill',
@@ -43,7 +43,7 @@ export async function armarHistoria(r: Reloj) {
       ...entradaArgs, '-stream_loop', '-1', '-i', musica,
       '-filter_complex', `${base},${ficha}[v];[1:a]volume=0.8,afade=t=in:d=0.6[a]`,
       '-map', '[v]', '-map', '[a]', '-t', esVideo ? '15' : '8', '-shortest',
-      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p',
+      '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-maxrate', '10M', '-bufsize', '20M', '-profile:v', 'high', '-pix_fmt', 'yuv420p',
       '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', salida,
     ]);
     const nombre = `historias/${new Date().toISOString().slice(0, 10)}-${(r['Referencia'] || nombreReloj(r)).replace(/[^\w-]/g, '')}-${Date.now()}.mp4`;
