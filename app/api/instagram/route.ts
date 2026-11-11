@@ -15,6 +15,13 @@ export async function GET(req: Request) {
   return new Response('No autorizado', { status: 403 });
 }
 
+// Margaret parte los mensajes largos: cada parte vuelve como un eco separado.
+async function esParteDeRespuesta(base: ReturnType<typeof db>, cliente: string, texto: string) {
+  const { data } = await base.from('ig_mensajes').select('texto').eq('ig_usuario', cliente).eq('rol', 'assistant')
+    .gte('creado', new Date(Date.now() - 3 * 60000).toISOString()).order('id', { ascending: false }).limit(3);
+  return (data || []).some((r) => r.texto.includes(texto.trim()));
+}
+
 export async function POST(req: Request) {
   const cuerpo = await req.text();
   const base = db();
@@ -41,8 +48,13 @@ export async function POST(req: Request) {
       if (m.is_echo) {
         // Un mensaje que salió de la cuenta. Si no lo mandó Margaret, lo escribió Beltrán a mano: pausamos a Margaret 12 h en ese chat.
         const cliente = String(ev.recipient.id);
-        const { data: propio } = await base.from('ig_mensajes').select('id').eq('mid', m.mid).maybeSingle();
-        if (!propio) {
+        // Es de Margaret si coincide el id o si ella mandó ese mismo texto a ese cliente en los últimos 3 minutos.
+        const { data: porId } = await base.from('ig_mensajes').select('id').eq('mid', m.mid).maybeSingle();
+        const { data: porTexto } = await base.from('ig_mensajes').select('id')
+          .eq('ig_usuario', cliente).eq('rol', 'assistant').eq('texto', texto)
+          .gte('creado', new Date(Date.now() - 3 * 60000).toISOString()).limit(1).maybeSingle();
+        const esMargaret = !!(porId || porTexto || (m.text && (await esParteDeRespuesta(base, cliente, m.text))));
+        if (!esMargaret) {
           await base.from('ig_mensajes').insert({ ig_usuario: cliente, rol: 'assistant', texto, mid: m.mid }).then(() => {}, () => {});
           await base.from('credenciales').upsert({ clave: `ig_pausa_${cliente}`, valor: String(Date.now() + 12 * 3600000), actualizado: new Date().toISOString() });
         }
