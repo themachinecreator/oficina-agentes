@@ -12,7 +12,7 @@ export function db(): SupabaseClient {
   return client;
 }
 
-export const AGENTES_IDS = ['arthur', 'eleanor', 'margaret', 'julian', 'theo', 'charles', 'henry'] as const;
+export const AGENTES_IDS = ['arthur', 'eleanor', 'margaret', 'julian', 'theo', 'henry'] as const;
 export type AgenteId = (typeof AGENTES_IDS)[number];
 
 export async function setAhora(agente: AgenteId, ahora: string, estado?: 'ok' | 'wait' | 'idle') {

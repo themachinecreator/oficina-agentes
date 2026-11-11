@@ -216,14 +216,6 @@ const AGENTS = {
     limite:'Edición prolija pero básica: cortes, subtítulos, música y logo. Corre en tu computadora con Windows.',
     look:{suit:0xa7825a, shirt:0x2b2b2b, hair:0x161210, skin:0xc99a74, noJacket:true, pants:0x3a3a3e},
     seat:{x:9, z:-6, r:0} },
-  charles: { name:'Charles Pemberton', cargo:'Analista de mercado', estado:'ok',
-    ahora:'Revisando precios en Chrono24 y reloje.ar.',
-    perso:'Frío y preciso. Habla con números.',
-    hoy:[['07:30','Revisó publicaciones nuevas en reloje.ar'],['08:10','Comparó precios de referencia en Chrono24'],['09:30','Leyó las últimas publicaciones de la competencia']],
-    puede:'Sigue precios y publicaciones en Chrono24, reloje.ar y cuentas de la competencia. Te manda un reporte semanal y alertas de oportunidades.',
-    limite:'Solo lee. Nunca compra ni contacta a nadie.',
-    look:{suit:0x3a3d42, shirt:0xe8e8e2, tie:0x1e2f4f, hair:0xcfae6c, skin:0xeac4a4},
-    seat:{x:8.5, z:5.8, r:PI} },
   henry: { name:'Henry Caldwell', cargo:'Contador', estado:'idle',
     ahora:'Todavía no está conectado.',
     perso:'Meticuloso y prudente. Cuenta dos veces antes de opinar.',
@@ -873,18 +865,7 @@ softbox(9.7, -3.7, -2.4); softbox(9.7, -.5, -.8);
 lampLight(10.4, 2.0, -2.1, 0xfff3e0);
 
 // Análisis de mercado
-(function analysis(){
-  const s = AGENTS.charles.seat;
-  desk(s, 2.0);
-  chair(s, MAT.leather);
-  const kinds = ['up','down','up'];
-  for (let i=0;i<3;i++){
-    const x = s.x - .62 + i*.62, r = (i-1)*-.25;
-    box(.05,.2,.05, MAT.dark, x, .87, 4.78);
-    const scr = new THREE.Mesh(new THREE.BoxGeometry(.58, .36, .03), new THREE.MeshStandardMaterial({ color:0x222222, emissive:0xffffff, emissiveMap: monitorTex(kinds[i]), emissiveIntensity:.7 }));
-    scr.position.set(x, 1.15, 4.78); scr.rotation.y = r; scene.add(scr); screens.push(scr.material);
-  }
-})();
+
 plant(11.2, 7.2, 1.1);
 
 // Contaduría (Henry)
@@ -981,8 +962,7 @@ function setPose(a, mode, t){
 const ERRANDS = [
   { id:'eleanor', path:[[-1.5,-3.2],[-2.9,-3.2],[-2.9,-.35],[-5.5,-.35],[-5.5,-2.6],[-6.4,-4.4]], face:Math.atan2(-1.6,-1.8), go:'Le lleva la agenda a Arthur', visit:'Repasando la agenda con Arthur' },
   { id:'margaret', path:[[-6.6,5],[-4.6,2.2],[-1.5,-1.15]], face:PI, go:'Va a pedirle horarios a Eleanor', visit:'Coordinando una visita con Eleanor' },
-  { id:'julian', path:[[5.5,-6],[7.25,-6.7],[7.95,-6.7]], face:PI/2, go:'Le lleva un guion a Theo', visit:'Revisando el guion con Theo' },
-  { id:'charles', path:[[8.5,5.8],[8.5,6.9],[6.4,6.9],[6.4,2.9],[5.5,-4.25]], face:PI, go:'Le lleva datos de mercado a Julian', visit:'Pasándole tendencias a Julian' }
+  { id:'julian', path:[[5.5,-6],[7.25,-6.7],[7.95,-6.7]], face:PI/2, go:'Le lleva un guion a Theo', visit:'Revisando el guion con Theo' }
 ];
 let errandIdx = 0, errandClock = 5;
 const ERRANDS_ON = false;

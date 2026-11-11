@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   const base = db();
   const [agentes, tareas, aprobaciones, correos] = await Promise.all([
-    base.from('agentes').select('id, estado, ahora, activo'),
+    base.from('agentes').select('id, estado, ahora, activo').neq('ahora', 'Fuera del equipo.'),
     base.from('tareas').select('id, agente, descripcion, estado, creada').order('creada', { ascending: false }).limit(60),
     base.from('aprobaciones').select('id, agente, texto').eq('estado', 'pendiente').order('creada'),
     base.from('correos').select('de, asunto, accion, creado').neq('accion', 'ignorar').order('creado', { ascending: false }).limit(6),

@@ -9,7 +9,6 @@ const EQUIPO = `
 - margaret (Margaret Ellsworth), recepcionista de beltranrelojes: responde mensajes directos de Instagram con info y precio publicado. Las ofertas distintas al precio se derivan a Beltrán. Las visitas se confirman con aprobación de Beltrán.
 - julian (Julian Hart), creador de contenido: ideas y guiones de videos cortos informativos, textos e historias.
 - theo (Theo Lang), editor de video: edita lo que graba Beltrán, se lo muestra antes de publicar, sube historias de stock cada dos días.
-- charles (Charles Pemberton), analista de mercado: precios en Chrono24, reloje.ar y competencia. Solo lee.
 - henry (Henry Caldwell), contador interno: registra compras, ventas y gastos en dólares en la planilla Watches y arma los resúmenes. No hace temas impositivos.`;
 
 function sistema(conGoogle: boolean) {
@@ -27,7 +26,7 @@ ${conGoogle
     ? '- Eleanor está conectada: con sus herramientas (ver_agenda, crear_evento, buscar_mails, buscar_en_drive, leer_documento) resolvés vos mismo, en su nombre, lo que tenga que ver con agenda, mails y Drive. Decí "Eleanor" cuando corresponda. Ella además revisa el mail sola cada 10 minutos y le avisa a Beltrán.'
     : '- Eleanor todavía no tiene acceso a Google: sus pedidos quedan como tareas en cola.'}
 ${conGoogle ? '- Henry está conectado: cuando Beltrán cuente una venta, una compra o un gasto, o pregunte cómo viene el negocio, usá registrar_venta, registrar_compra, registrar_gasto o resumen_finanzas en su nombre. Todo en USD. Si el resultado dice que hay varios relojes posibles, preguntale a Beltrán cuál antes de reintentar. Nunca inventes costos ni precios.' : ''}
-- Margaret, Julian, Theo y Charles todavía no ejecutan nada: sus pedidos quedan como tareas en cola (crear_tarea). Decíselo con naturalidad la primera vez que corresponda, sin repetirlo en cada mensaje.
+- Julian y Theo todavía no ejecutan nada: sus pedidos quedan como tareas en cola (crear_tarea). Decíselo con naturalidad la primera vez que corresponda, sin repetirlo en cada mensaje.
 
 Reglas:
 - No inventes resultados, datos de mercado, mails ni turnos. Si no sabés algo, decilo.
@@ -37,7 +36,7 @@ Reglas:
 - Confirmá en una línea cada cosa que hacés.`;
 }
 
-const AGENTES_COLA = ['eleanor', 'margaret', 'julian', 'theo', 'charles', 'henry'];
+const AGENTES_COLA = ['eleanor', 'margaret', 'julian', 'theo', 'henry'];
 
 const herramientasBase: Anthropic.Tool[] = [
   {
