@@ -10,6 +10,7 @@ const EQUIPO = `
 - margaret (Margaret Ellsworth), recepcionista de beltranrelojes: responde mensajes directos de Instagram con info y precio publicado. Las ofertas distintas al precio se derivan a Beltrán. Las visitas se confirman con aprobación de Beltrán.
 - julian (Julian Hart), creador de contenido: ideas y guiones de videos cortos informativos, textos e historias.
 - theo (Theo Lang), editor de video: edita lo que graba Beltrán, se lo muestra antes de publicar, sube historias de stock cada dos días.
+- victoria (Victoria Ashford), marketing: mide la cuenta de Instagram, le marca la dirección a Julian y Theo para crecer y maneja los anuncios (hasta 30 USD por mes, cada campaña con aprobación de Beltrán).
 - henry (Henry Caldwell), contador interno: registra compras, ventas y gastos en dólares en la planilla Watches y arma los resúmenes. No hace temas impositivos.`;
 
 function sistema(conGoogle: boolean) {
@@ -28,6 +29,7 @@ ${conGoogle
     : '- Eleanor todavía no tiene acceso a Google: sus pedidos quedan como tareas en cola.'}
 ${conGoogle ? '- Henry está conectado: cuando Beltrán cuente una venta, una compra o un gasto, o pregunte cómo viene el negocio, usá registrar_venta, registrar_compra, registrar_gasto o resumen_finanzas en su nombre. Cualquier otro pedido para Henry (corregir o completar datos de la planilla como fechas, gráficos, análisis, ideas de mejora) pasáselo con encargar_a_henry, nunca con crear_tarea: él lo hace solo y le manda el informe a Beltrán por Telegram, así que no hace falta que vos avises cuando termina. Si hay tareas de Henry en cola, también se las podés pasar con encargar_a_henry indicando el número. Todo en USD. Si el resultado dice que hay varios relojes posibles, preguntale a Beltrán cuál antes de reintentar. Nunca inventes costos ni precios.' : ''}
 - Julian está conectado: cuando Beltrán pida un guion, ideas, cambios a un guion o el estado de los guiones, usá pedir_guion, pedir_ideas, revisar_guion, marcar_guion o ver_guiones. Julian le manda el guion directamente por Telegram: vos no lo repitas ni lo resumas, solo confirmá en una línea (por ejemplo "Te lo mandó Julian, es el #4"). Si Beltrán pide cambios sin decir el número, usá el último guion de la conversación.
+- Victoria está conectada: cualquier pedido de marketing, crecimiento de la cuenta, estadísticas, anuncios o estrategia de contenido pasáselo con encargar_a_victoria. Ella trabaja sola, coordina con Julian y le manda el informe y las propuestas de anuncio a Beltrán por Telegram. Los lunes manda su informe semanal sola.
 - Theo está conectado: cuando Beltrán diga que subió las tomas de un guion (carpeta "Videos para editar/Guion N" en el Drive), usá editar_reel. Si no dijo si quiere música libre de derechos (Theo la pone y publica cuando Beltrán aprueba) o sin música (para que él ponga un audio de tendencia y publique), preguntale antes. Theo avisa por Telegram cuando el reel está listo. Las historias del stock se publican solas cada dos días a las 18; si Beltrán pide subirlas ya, usá publicar_historias (una por cada reloj con fotos, y Theo avisa al terminar).
 
 Reglas:
@@ -39,7 +41,7 @@ Reglas:
 - Confirmá en una línea cada cosa que hacés.`;
 }
 
-const AGENTES_COLA = ['eleanor', 'margaret', 'julian', 'theo', 'henry'];
+const AGENTES_COLA = ['eleanor', 'margaret', 'julian', 'theo', 'henry', 'victoria'];
 
 const herramientasBase: Anthropic.Tool[] = [
   {
@@ -222,6 +224,11 @@ const herramientasTheo: Anthropic.Tool[] = [
       required: ['guion_id', 'musica'],
     },
   },
+  {
+    name: 'encargar_a_victoria',
+    description: 'Le pasa a Victoria un pedido de marketing (estadísticas, crecimiento, anuncios, estrategia de contenido). Trabaja en segundo plano y le escribe a Beltrán por Telegram.',
+    input_schema: { type: 'object', properties: { pedido: { type: 'string', description: 'El pedido completo de Beltrán.' } }, required: ['pedido'] },
+  },
   { name: 'publicar_historias', description: 'Theo arma y publica ahora en Instagram una historia por cada reloj del stock con fotos o videos (con música y ficha de precio). Avisa por Telegram al terminar.', input_schema: { type: 'object', properties: {} } },
 ];
 
@@ -317,6 +324,14 @@ async function ejecutar(nombre: string, input: any): Promise<string> {
         body: JSON.stringify({ pedido: input.pedido, tareaId: input.tarea_id }),
       });
       return r.ok ? 'Henry ya está trabajando; le manda el informe a Beltrán por Telegram cuando termine.' : `Henry no pudo arrancar (${r.status}).`;
+    }
+    if (nombre === 'encargar_a_victoria') {
+      const base = process.env.URL_OFICINA || 'https://oficina-agentes-351k.vercel.app';
+      const r = await fetch(`${base}/api/cron/victoria`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cron-secret': process.env.CRON_SECRET || '' },
+        body: JSON.stringify({ pedido: input.pedido }),
+      });
+      return r.ok ? 'Victoria ya está trabajando; le escribe a Beltrán cuando termine.' : `Victoria no pudo arrancar (${r.status}).`;
     }
     if (nombre === 'publicar_historias') {
       const base = process.env.URL_OFICINA || 'https://oficina-agentes-351k.vercel.app';

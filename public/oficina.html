@@ -223,7 +223,15 @@ const AGENTS = {
     puede:'Registra compras, ventas y gastos en dólares en la planilla Watches, arma el resumen mensual y te dice cuánto ganarías con cada oferta.',
     limite:'Solo números internos. No hace temas impositivos ni presentaciones.',
     look:{suit:0x3b2f2a, shirt:0xf1ece2, tie:0x6b4f1d, hair:0x8c8a85, skin:0xe0b694},
-    seat:{x:1.6, z:6.7, r:PI} }
+    seat:{x:1.6, z:6.7, r:PI} },
+  victoria: { name:'Victoria Ashford', cargo:'Marketing', estado:'ok',
+    ahora:'Midiendo cómo viene la cuenta.',
+    perso:'Analítica y directa. Decide con números.',
+    hoy:[],
+    puede:'Mide la cuenta de Instagram, le marca la dirección a Julian y Theo para crecer y propone anuncios para vender y sumar seguidores.',
+    limite:'Hasta 30 USD por mes en anuncios y cada campaña con tu aprobación.',
+    look:{suit:0x1d2a3d, shirt:0xf3efe6, hair:0xc79a55, skin:0xf0cdb0, longHair:true, pants:0x141d2b},
+    seat:{x:8.5, z:5.8, r:PI} }
 };
 const ESTADO_TXT = { ok:'Trabajando', wait:'Espera tu aprobación', idle:'Libre' };
 
@@ -864,7 +872,19 @@ function softbox(x, z, r){
 softbox(9.7, -3.7, -2.4); softbox(9.7, -.5, -.8);
 lampLight(10.4, 2.0, -2.1, 0xfff3e0);
 
-// Análisis de mercado
+// Marketing (Victoria)
+(function marketing(){
+  const s = AGENTS.victoria.seat;
+  desk(s, 2.0);
+  chair(s, MAT.leather);
+  const kinds = ['up','up','down'];
+  for (let i=0;i<2;i++){
+    const x = s.x - .35 + i*.7, r = (i-.5)*-.3;
+    box(.05,.2,.05, MAT.dark, x, .87, 4.78);
+    const scr = new THREE.Mesh(new THREE.BoxGeometry(.6, .37, .03), new THREE.MeshStandardMaterial({ color:0x222222, emissive:0xffffff, emissiveMap: monitorTex(kinds[i]), emissiveIntensity:.7 }));
+    scr.position.set(x, 1.15, 4.78); scr.rotation.y = r; scene.add(scr); if (typeof screens !== 'undefined') screens.push(scr.material);
+  }
+})();
 
 plant(11.2, 7.2, 1.1);
 
@@ -962,7 +982,8 @@ function setPose(a, mode, t){
 const ERRANDS = [
   { id:'eleanor', path:[[-1.5,-3.2],[-2.9,-3.2],[-2.9,-.35],[-5.5,-.35],[-5.5,-2.6],[-6.4,-4.4]], face:Math.atan2(-1.6,-1.8), go:'Le lleva la agenda a Arthur', visit:'Repasando la agenda con Arthur' },
   { id:'margaret', path:[[-6.6,5],[-4.6,2.2],[-1.5,-1.15]], face:PI, go:'Va a pedirle horarios a Eleanor', visit:'Coordinando una visita con Eleanor' },
-  { id:'julian', path:[[5.5,-6],[7.25,-6.7],[7.95,-6.7]], face:PI/2, go:'Le lleva un guion a Theo', visit:'Revisando el guion con Theo' }
+  { id:'julian', path:[[5.5,-6],[7.25,-6.7],[7.95,-6.7]], face:PI/2, go:'Le lleva un guion a Theo', visit:'Revisando el guion con Theo' },
+  { id:'victoria', path:[[8.5,5.8],[8.5,6.9],[6.4,6.9],[6.4,2.9],[5.5,-4.25]], face:PI, go:'Le lleva los números de la semana a Julian', visit:'Definiendo el contenido de la semana con Julian' }
 ];
 let errandIdx = 0, errandClock = 5;
 const ERRANDS_ON = false;

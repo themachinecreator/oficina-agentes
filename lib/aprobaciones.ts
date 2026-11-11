@@ -3,6 +3,7 @@ import { responderCorreo, crearEvento, horaBA } from './google';
 import { enviarDM } from './instagram';
 import { crearContenedor, esperarContenedor, publicarContenedor } from './publicar';
 import { editarMensaje } from './telegram';
+import { lanzarCampana } from './marketing';
 
 export async function crearAprobacion(agente: string, texto: string, tipo = 'general', datos: unknown = null) {
   const { data, error } = await db().from('aprobaciones')
@@ -49,6 +50,21 @@ export async function resolverAprobacion(id: number, aprobado: boolean): Promise
       }
     } else {
       resultado = ap.datos?.musica === 'sin' ? 'Listo, el reel queda para que lo publiques vos con tu audio.' : 'No se publica. Pedile a Arthur los cambios que quieras.';
+    }
+  }
+  if (ap.tipo === 'campana') {
+    const { campanaId } = ap.datos || {};
+    if (aprobado) {
+      try {
+        await setAhora('victoria', `Lanzando el anuncio #${campanaId}.`, 'ok');
+        resultado = await lanzarCampana(campanaId);
+      } catch (e: any) {
+        await setAhora('victoria', `No pudo lanzar el anuncio #${campanaId}.`, 'idle');
+        return `No pude lanzar el anuncio: ${e.message}`;
+      }
+    } else {
+      await base.from('campanas').update({ estado: 'rechazada' }).eq('id', campanaId);
+      resultado = `Anuncio #${campanaId} descartado.`;
     }
   }
   if (ap.tipo === 'visita') {
