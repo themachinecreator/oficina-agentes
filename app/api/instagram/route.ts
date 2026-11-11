@@ -26,7 +26,13 @@ export async function POST(req: Request) {
   const datos = JSON.parse(cuerpo);
 
   for (const entrada of datos.entry || []) {
-    for (const ev of entrada.messaging || []) {
+    // Meta manda los mensajes en entry[].messaging[] o, según la configuración, en entry[].changes[] con field "messages".
+    const eventos = [
+      ...(entrada.messaging || []),
+      ...((entrada.changes || []).filter((c: any) => c.field === 'messages').map((c: any) => c.value)),
+    ];
+    for (const ev of eventos) {
+      if (!ev?.sender?.id || !ev?.recipient?.id) continue;
       const m = ev.message;
       if (!m || m.is_deleted) continue;
       const texto = m.text || (m.attachments?.length ? `[El cliente mandó ${m.attachments.length === 1 ? 'un adjunto' : 'adjuntos'}: ${m.attachments.map((a: any) => a.type).join(', ')}]` : '');
