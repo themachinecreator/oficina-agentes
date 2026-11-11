@@ -1,7 +1,7 @@
 import { after } from 'next/server';
 import { cronAutorizado } from '@/lib/cron';
 import { googleConectado } from '@/lib/google';
-import { publicarHistoriaDe, relojesParaHistorias, setAhora } from '@/lib/theo';
+import { publicarArmadas, publicarHistoriaDe, relojesParaHistorias, setAhora } from '@/lib/theo';
 import { avisar } from '@/lib/telegram';
 import { db } from '@/lib/db';
 
@@ -13,6 +13,14 @@ async function correr(req: Request) {
   if (!cronAutorizado(req)) return Response.json({ error: 'No autorizado' }, { status: 401 });
   if (!(await googleConectado())) return Response.json({ ok: true, mensaje: 'Google no está conectado.' });
   const url = new URL(req.url);
+  if (url.searchParams.get('armadas') === '1') {
+    after(async () => {
+      const hechas = await publicarArmadas();
+      await setAhora('theo', `Publicó ${hechas.length} historias.`, 'ok');
+      await avisar(hechas.length ? `Theo — publiqué ${hechas.length} historias: ${hechas.join(', ')}.` : 'Theo — no encontré historias armadas para publicar.');
+    });
+    return Response.json({ ok: true });
+  }
   const i = Number(url.searchParams.get('i') || 0);
   const prueba = url.searchParams.get('prueba') === '1';
   // La tanda programada se saltea si Beltrán ya mandó a publicar en las últimas 20 horas.

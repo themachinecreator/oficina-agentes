@@ -101,5 +101,6 @@ export async function textoEnArchivo(dir: string, nombre: string, texto: string)
 export async function filtroHdr(archivo: string) {
   const info = await ffmpegInfo(['-i', archivo]);
   if (!/arib-std-b67|smpte2084|bt2020/.test(info)) return '';
-  return 'zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p,';
+  // Primero se achica a 1080x1920 (4 veces menos píxeles que el 4K) y después se convierte el color.
+  return 'scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p,';
 }

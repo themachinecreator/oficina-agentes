@@ -229,6 +229,7 @@ const herramientasTheo: Anthropic.Tool[] = [
     description: 'Le pasa a Victoria un pedido de marketing (estadísticas, crecimiento, anuncios, estrategia de contenido). Trabaja en segundo plano y le escribe a Beltrán por Telegram.',
     input_schema: { type: 'object', properties: { pedido: { type: 'string', description: 'El pedido completo de Beltrán.' } }, required: ['pedido'] },
   },
+  { name: 'publicar_historias_de_prueba', description: 'Publica en Instagram las historias de prueba que Theo armó en la última hora y que Beltrán ya vio y aprobó, sin volver a armarlas.', input_schema: { type: 'object', properties: {} } },
   { name: 'publicar_historias', description: 'Theo arma y publica ahora en Instagram una historia por cada reloj del stock con fotos o videos (con música y ficha de precio). Avisa por Telegram al terminar.', input_schema: { type: 'object', properties: {} } },
 ];
 
@@ -332,6 +333,11 @@ async function ejecutar(nombre: string, input: any): Promise<string> {
         body: JSON.stringify({ pedido: input.pedido }),
       });
       return r.ok ? 'Victoria ya está trabajando; le escribe a Beltrán cuando termine.' : `Victoria no pudo arrancar (${r.status}).`;
+    }
+    if (nombre === 'publicar_historias_de_prueba') {
+      const base = process.env.URL_OFICINA || 'https://oficina-agentes-351k.vercel.app';
+      const r = await fetch(`${base}/api/cron/theo-historias?armadas=1`, { method: 'POST', headers: { 'x-cron-secret': process.env.CRON_SECRET || '' } });
+      return r.ok ? 'Theo está publicando las historias de prueba; avisa al terminar.' : `Theo no pudo arrancar (${r.status}).`;
     }
     if (nombre === 'publicar_historias') {
       const base = process.env.URL_OFICINA || 'https://oficina-agentes-351k.vercel.app';

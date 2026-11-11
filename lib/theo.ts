@@ -76,3 +76,23 @@ export async function relojesParaHistorias() {
 }
 
 export { setAhora };
+
+// Publica las historias de prueba que Beltrán vio y aprobó (sin volver a armarlas).
+export async function publicarArmadas(minutos = 90) {
+  const desde = new Date(Date.now() - minutos * 60000).toISOString();
+  const { data } = await db().from('publicaciones').select('id, reloj, archivo').eq('tipo', 'historia').eq('estado', 'armada').gte('creado', desde).order('id');
+  const hechas: string[] = [];
+  for (const p of data || []) {
+    try {
+      const url = `${process.env.SUPABASE_URL}/storage/v1/object/public/publicaciones/${p.archivo}`;
+      const cont = await crearContenedor('STORIES', url, true);
+      await esperarContenedor(cont);
+      const id = await publicarContenedor(cont);
+      await db().from('publicaciones').update({ estado: 'publicada', ig_media_id: id }).eq('id', p.id);
+      hechas.push(p.reloj);
+    } catch (e: any) {
+      await db().from('publicaciones').update({ estado: 'error', error: e.message }).eq('id', p.id);
+    }
+  }
+  return hechas;
+}
