@@ -18,7 +18,10 @@ export async function carpetasRelojes(): Promise<CarpetaReloj[]> {
   if (cache && Date.now() - cache.cuando < 5 * 60000) return cache.carpetas;
   const raiz = await carpetaRaiz();
   if (!raiz) return [];
-  const subs = await listarDrive(`'${raiz}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
+  // Carpetas de trabajo que viven en el mismo Drive pero no son relojes.
+  const especiales = /^(m[uú]sica theo|videos para editar)$/i;
+  const subs = (await listarDrive(`'${raiz}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`))
+    .filter((s) => !especiales.test(String(s.name).trim()));
   const carpetas: CarpetaReloj[] = [];
   for (const s of subs) {
     const archivos = await listarDrive(`'${s.id}' in parents and trashed = false and (mimeType contains 'image/' or mimeType contains 'video/')`);

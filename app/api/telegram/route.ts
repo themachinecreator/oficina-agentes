@@ -20,10 +20,13 @@ export async function POST(req: Request) {
     const cq = update.callback_query;
     const dueño = process.env.TELEGRAM_OWNER_ID;
     const m = /^apr:(\d+):(si|no)$/.exec(cq.data || '');
-    let texto = 'Listo.';
-    if (!dueño || String(cq.from.id) !== dueño) texto = 'Esta oficina es privada.';
-    else if (m) texto = await resolverAprobacion(Number(m[1]), m[2] === 'si');
-    await telegram('answerCallbackQuery', { callback_query_id: cq.id, text: texto.slice(0, 190) }).catch(() => {});
+    if (!dueño || String(cq.from.id) !== dueño) {
+      await telegram('answerCallbackQuery', { callback_query_id: cq.id, text: 'Esta oficina es privada.' }).catch(() => {});
+      return ok();
+    }
+    // Respondemos el botón al instante; publicar un reel puede tardar un par de minutos.
+    await telegram('answerCallbackQuery', { callback_query_id: cq.id, text: 'Recibido, ya lo hago.' }).catch(() => {});
+    if (m) after(async () => { await resolverAprobacion(Number(m[1]), m[2] === 'si').catch((e) => console.error(e)); });
     return ok();
   }
 

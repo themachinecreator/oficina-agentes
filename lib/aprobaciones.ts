@@ -1,6 +1,7 @@
 import { db, setAhora } from './db';
 import { responderCorreo, crearEvento, horaBA } from './google';
 import { enviarDM } from './instagram';
+import { crearContenedor, esperarContenedor, publicarContenedor } from './publicar';
 import { editarMensaje } from './telegram';
 
 export async function crearAprobacion(agente: string, texto: string, tipo = 'general', datos: unknown = null) {
@@ -30,6 +31,24 @@ export async function resolverAprobacion(id: number, aprobado: boolean): Promise
       }
     } else {
       resultado = `No respondí el mail de ${correo?.de || 'ese remitente'}.`;
+    }
+  }
+  if (ap.tipo === 'reel') {
+    const { guionId, url, caption } = ap.datos || {};
+    if (aprobado) {
+      try {
+        await setAhora('theo', `Publicando el reel del guion #${guionId}.`, 'ok');
+        const cont = await crearContenedor('REELS', url, true, caption);
+        await esperarContenedor(cont, 240000);
+        await publicarContenedor(cont);
+        await base.from('guiones').update({ estado: 'publicado', actualizado: new Date().toISOString() }).eq('id', guionId);
+        await base.from('publicaciones').update({ estado: 'publicada' }).like('archivo', `reels/guion-${guionId}-%`);
+        resultado = `Reel del guion #${guionId} publicado en @beltranrelojes.`;
+      } catch (e: any) {
+        return `No pude publicar el reel: ${e.message}`;
+      }
+    } else {
+      resultado = ap.datos?.musica === 'sin' ? 'Listo, el reel queda para que lo publiques vos con tu audio.' : 'No se publica. Pedile a Arthur los cambios que quieras.';
     }
   }
   if (ap.tipo === 'visita') {

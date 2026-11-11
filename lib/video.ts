@@ -21,6 +21,24 @@ export function ffmpeg(args: string[], timeoutMs = 240000): Promise<void> {
   });
 }
 
+// Igual que ffmpeg() pero devuelve lo que ffmpeg informa (para detectar silencios y duraciones).
+export function ffmpegInfo(args: string[], timeoutMs = 120000): Promise<string> {
+  return new Promise((resolve) => {
+    const p = spawn(ffmpegPath as unknown as string, ['-hide_banner', ...args]);
+    let salida = '';
+    p.stderr.on('data', (d) => { salida += d.toString(); });
+    const t = setTimeout(() => p.kill('SIGKILL'), timeoutMs);
+    p.on('close', () => { clearTimeout(t); resolve(salida); });
+  });
+}
+
+export async function duracionYAudio(archivo: string) {
+  const info = await ffmpegInfo(['-i', archivo]);
+  const m = /Duration: (\d+):(\d+):([\d.]+)/.exec(info);
+  const dur = m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : 0;
+  return { dur, audio: /Stream #.*Audio:/.test(info) };
+}
+
 export async function carpetaTemporal() {
   return fs.mkdtemp(path.join(os.tmpdir(), 'theo-'));
 }
