@@ -2,6 +2,7 @@ import path from 'path';
 import { promises as fs } from 'fs';
 import { db, setAhora } from './db';
 import { listarDrive } from './google';
+import { carpetaRaiz } from './fotos';
 import {
   ffmpeg, ffmpegInfo, duracionYAudio, carpetaTemporal, bajarDeDrive, cancionAlAzar, logo,
   subirPublicacion, textoEnArchivo, FUENTE_FUERTE,
@@ -63,7 +64,9 @@ export async function tramoConVoz(archivo: string, dur: number) {
 }
 
 async function carpetaTomas(guionId: number) {
-  const raiz = await listarDrive(`name = 'Videos para editar' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
+  const base = await carpetaRaiz();
+  const raiz = (await listarDrive(`${base ? `'${base}' in parents and ` : ''}mimeType = 'application/vnd.google-apps.folder' and trashed = false`))
+    .filter((f: any) => /videos?\s+para\s+editar/i.test(f.name));
   if (!raiz.length) throw new Error('No encontré la carpeta "Videos para editar" en el Drive.');
   const subs = await listarDrive(`'${raiz[0].id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
   const c = subs.find((s) => new RegExp(`\\b${guionId}\\b`).test(s.name));

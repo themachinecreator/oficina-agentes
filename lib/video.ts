@@ -5,6 +5,7 @@ import os from 'os';
 import ffmpegPath from 'ffmpeg-static';
 import { db } from './db';
 import { descargarDrive, listarDrive } from './google';
+import { carpetaRaiz } from './fotos';
 
 const FUENTES = path.join(process.cwd(), 'assets', 'fonts');
 export const FUENTE_FUERTE = path.join(FUENTES, 'Jost-SemiBold.ttf');
@@ -54,7 +55,9 @@ export async function bajarDeDrive(id: string, destino: string) {
 async function carpetaMusica() {
   const { data } = await db().from('credenciales').select('valor').eq('clave', 'musica_carpeta_id').maybeSingle();
   if (data?.valor) return data.valor;
-  const r = await listarDrive(`name = 'Música Theo' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
+  const raiz = await carpetaRaiz();
+  const r = (await listarDrive(`${raiz ? `'${raiz}' in parents and ` : ''}mimeType = 'application/vnd.google-apps.folder' and trashed = false`))
+    .filter((f: any) => /m[uú]sica/i.test(f.name));
   if (!r.length) return '';
   await db().from('credenciales').upsert({ clave: 'musica_carpeta_id', valor: r[0].id, actualizado: new Date().toISOString() });
   return r[0].id;
@@ -73,7 +76,7 @@ export async function cancionAlAzar(destino: string) {
 export async function logo(destino: string) {
   const carpeta = await carpetaMusica();
   if (!carpeta) return null;
-  const r = await listarDrive(`'${carpeta}' in parents and trashed = false and mimeType = 'image/png'`);
+  const r = await listarDrive(`'${carpeta}' in parents and trashed = false and (mimeType = 'image/png' or mimeType = 'image/jpeg')`);
   if (!r.length) return null;
   return bajarDeDrive(r[0].id, destino);
 }

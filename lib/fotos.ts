@@ -19,7 +19,7 @@ export async function carpetasRelojes(): Promise<CarpetaReloj[]> {
   const raiz = await carpetaRaiz();
   if (!raiz) return [];
   // Carpetas de trabajo que viven en el mismo Drive pero no son relojes.
-  const especiales = /^(m[uú]sica theo|videos para editar)$/i;
+  const especiales = /m[uú]sica|\btheo\b|videos para editar/i;
   const subs = (await listarDrive(`'${raiz}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`))
     .filter((s) => !especiales.test(String(s.name).trim()));
   const carpetas: CarpetaReloj[] = [];
