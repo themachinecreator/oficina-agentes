@@ -208,7 +208,7 @@ export async function marcaDeAgua(op: { nombre?: string; descripcion?: string; r
     await db().from('publicaciones').insert({ tipo: 'reel', reloj: v.name, archivo: nombre, estado: 'para aprobar' });
     await setAhora('julian', 'Mirando el video de Theo para sugerir mejoras.', 'ok');
     const desc = `${op.descripcion || 'Video publicitario de un reloj'}. Dura ${Math.round(dur)} s, formato vertical para Reels, ${audio ? 'con audio propio' : 'sin audio'}, ${op.recuadro ? 'logo sobre un recuadro blanco abajo a la derecha' : 'logo chico abajo a la derecha'}.`;
-    const ideas = await sugerirParaVideo(desc).catch(() => '');
+    const ideas = await sugerirParaVideo(desc).catch((e: any) => `(Julian no pudo opinar: ${e.message})`);
     await setAhora('julian', 'Le pasó sus sugerencias a Theo.', 'ok');
     const texto = `Theo — video listo con tu marca de agua (${Math.round(dur)} s, formato Reel)\nVer video: ${url}${ideas ? `\n\nJulian sugiere:\n${ideas}` : ''}`;
     const id = await crearAprobacion('theo', texto, 'reel', { url, caption: '', musica: 'sin' });
