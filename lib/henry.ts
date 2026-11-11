@@ -6,7 +6,7 @@ import { hoyISO } from './claude';
 
 // Henry trabaja sobre la planilla "Watches": es el libro de compras y ventas.
 type Fila = { n: number; v: any[] }; // n = número de fila en la planilla (1 = encabezado)
-type Libro = { id: string; hoja: string; col: Record<string, number>; filas: Fila[] };
+export type Libro = { id: string; hoja: string; col: Record<string, number>; filas: Fila[]; encabezado: string[] };
 
 const norm = (s: any) => String(s ?? '').trim().toLowerCase();
 const COLUMNAS = {
@@ -25,7 +25,7 @@ export function numero(v: any): number | null {
   const n = Number(limpio);
   return isFinite(n) ? n : null;
 }
-const usd = (n: number) => `${Math.round(n).toLocaleString('es-AR')} USD`;
+export const usd = (n: number) => `${Math.round(n).toLocaleString('es-AR')} USD`;
 
 async function notasStock(): Promise<{ referencia: string; precio: string; detalle: string }[]> {
   const { data } = await _db().from('credenciales').select('valor').eq('clave', 'notas_stock').maybeSingle();
@@ -38,7 +38,7 @@ async function libroId() {
   return data.valor;
 }
 
-async function leerLibro(): Promise<Libro> {
+export async function leerLibro(): Promise<Libro> {
   const id = await libroId();
   const hoja = await primeraHoja(id);
   const valores = await leerRango(id, `'${hoja}'`);
@@ -64,11 +64,11 @@ async function leerLibro(): Promise<Libro> {
   const asignado = asignarCarpetas(relojes, await carpetasRelojes().catch(() => []));
   const conCarpeta = new Set(enStock.filter((_, i) => asignado.has(relojes[i])).map((f) => f.n));
   filas = filas.filter((f) => !enStock.includes(f) || conCarpeta.has(f.n));
-  return { id, hoja, col, filas };
+  return { id, hoja, col, filas, encabezado: (valores[0] || []).map((h: any) => String(h ?? '').trim()) };
 }
 
 // Agrega al final las columnas de fecha si todavía no existen.
-async function asegurarFechas(l: Libro) {
+export async function asegurarFechas(l: Libro) {
   const faltan = (['fechaCompra', 'fechaVenta'] as const).filter((k) => l.col[k] === undefined);
   if (!faltan.length) return l;
   const encabezado = (await leerRango(l.id, `'${l.hoja}'!1:1`))[0] || [];
@@ -80,10 +80,10 @@ async function asegurarFechas(l: Libro) {
   return l;
 }
 
-const celda = (f: Fila, l: Libro, k: string) => (l.col[k] === undefined ? undefined : f.v[l.col[k]]);
-const costoTotal = (f: Fila, l: Libro) => numero(celda(f, l, 'total')) ?? ((numero(celda(f, l, 'compra')) ?? 0) + (numero(celda(f, l, 'gastos')) ?? 0));
-const vendido = (f: Fila, l: Libro) => numero(celda(f, l, 'venta')) !== null;
-const nombreReloj = (f: Fila, l: Libro) =>
+export const celda = (f: Fila, l: Libro, k: string) => (l.col[k] === undefined ? undefined : f.v[l.col[k]]);
+export const costoTotal = (f: Fila, l: Libro) => numero(celda(f, l, 'total')) ?? ((numero(celda(f, l, 'compra')) ?? 0) + (numero(celda(f, l, 'gastos')) ?? 0));
+export const vendido = (f: Fila, l: Libro) => numero(celda(f, l, 'venta')) !== null;
+export const nombreReloj = (f: Fila, l: Libro) =>
   [celda(f, l, 'marca'), celda(f, l, 'modelo'), celda(f, l, 'referencia') && `ref. ${celda(f, l, 'referencia')}`, celda(f, l, 'detalle')]
     .filter(Boolean).join(' ');
 

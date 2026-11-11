@@ -46,3 +46,15 @@ export async function editarMensaje(messageId: number, texto: string) {
   if (!chat || !messageId) return;
   await telegram('editMessageText', { chat_id: chat, message_id: messageId, text: texto.slice(0, 4000) }).catch(() => {});
 }
+
+// Manda una imagen (por ejemplo un gráfico) al chat de Beltrán.
+export async function enviarFoto(imagen: Buffer, texto = '') {
+  const chat = dueñoChatId();
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!chat || !token) return;
+  const f = new FormData();
+  f.append('chat_id', chat);
+  if (texto) f.append('caption', texto.slice(0, 1000));
+  f.append('photo', new Blob([new Uint8Array(imagen)], { type: 'image/png' }), 'grafico.png');
+  await fetch(`${API}/bot${token}/sendPhoto`, { method: 'POST', body: f });
+}

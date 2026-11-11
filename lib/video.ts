@@ -73,12 +73,14 @@ export async function cancionAlAzar(destino: string) {
   return t.name as string;
 }
 
+// Logo: un PNG suelto en la carpeta Watches (o dentro de la de música). Si hay varios, el que se llame "logo".
 export async function logo(destino: string) {
-  const carpeta = await carpetaMusica();
-  if (!carpeta) return null;
-  const r = await listarDrive(`'${carpeta}' in parents and trashed = false and (mimeType = 'image/png' or mimeType = 'image/jpeg')`);
-  if (!r.length) return null;
-  return bajarDeDrive(r[0].id, destino);
+  const lugares = [await carpetaRaiz(), await carpetaMusica()].filter(Boolean);
+  for (const c of lugares) {
+    const r = await listarDrive(`'${c}' in parents and trashed = false and mimeType = 'image/png'`);
+    if (r.length) return bajarDeDrive((r.find((f: any) => /logo/i.test(f.name)) || r[0]).id, destino);
+  }
+  return null;
 }
 
 export async function subirPublicacion(archivo: string, nombre: string, tipo = 'video/mp4') {

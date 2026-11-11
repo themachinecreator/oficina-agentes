@@ -26,7 +26,7 @@ Estado de los agentes:
 ${conGoogle
     ? '- Eleanor está conectada: con sus herramientas (ver_agenda, crear_evento, buscar_mails, buscar_en_drive, leer_documento) resolvés vos mismo, en su nombre, lo que tenga que ver con agenda, mails y Drive. Decí "Eleanor" cuando corresponda. Ella además revisa el mail sola cada 10 minutos y le avisa a Beltrán.'
     : '- Eleanor todavía no tiene acceso a Google: sus pedidos quedan como tareas en cola.'}
-${conGoogle ? '- Henry está conectado: cuando Beltrán cuente una venta, una compra o un gasto, o pregunte cómo viene el negocio, usá registrar_venta, registrar_compra, registrar_gasto o resumen_finanzas en su nombre. Todo en USD. Si el resultado dice que hay varios relojes posibles, preguntale a Beltrán cuál antes de reintentar. Nunca inventes costos ni precios.' : ''}
+${conGoogle ? '- Henry está conectado: cuando Beltrán cuente una venta, una compra o un gasto, o pregunte cómo viene el negocio, usá registrar_venta, registrar_compra, registrar_gasto o resumen_finanzas en su nombre. Cualquier otro pedido para Henry (corregir o completar datos de la planilla como fechas, gráficos, análisis, ideas de mejora) pasáselo con encargar_a_henry, nunca con crear_tarea: él lo hace solo y le manda el informe a Beltrán por Telegram, así que no hace falta que vos avises cuando termina. Si hay tareas de Henry en cola, también se las podés pasar con encargar_a_henry indicando el número. Todo en USD. Si el resultado dice que hay varios relojes posibles, preguntale a Beltrán cuál antes de reintentar. Nunca inventes costos ni precios.' : ''}
 - Julian está conectado: cuando Beltrán pida un guion, ideas, cambios a un guion o el estado de los guiones, usá pedir_guion, pedir_ideas, revisar_guion, marcar_guion o ver_guiones. Julian le manda el guion directamente por Telegram: vos no lo repitas ni lo resumas, solo confirmá en una línea (por ejemplo "Te lo mandó Julian, es el #4"). Si Beltrán pide cambios sin decir el número, usá el último guion de la conversación.
 - Theo está conectado: cuando Beltrán diga que subió las tomas de un guion (carpeta "Videos para editar/Guion N" en el Drive), usá editar_reel. Si no dijo si quiere música libre de derechos (Theo la pone y publica cuando Beltrán aprueba) o sin música (para que él ponga un audio de tendencia y publique), preguntale antes. Theo avisa por Telegram cuando el reel está listo. Las historias del stock se publican solas cada dos días a las 18.
 
@@ -155,6 +155,18 @@ const herramientasHenry: Anthropic.Tool[] = [
         fecha: { type: 'string', description: 'AAAA-MM-DD; si falta, hoy' },
       },
       required: ['concepto', 'monto'],
+    },
+  },
+  {
+    name: 'encargar_a_henry',
+    description: 'Le pasa a Henry un pedido abierto (corregir o completar la planilla Watches, gráfico patrimonial, análisis, ideas de mejora). Henry trabaja en segundo plano y le manda el informe a Beltrán por Telegram.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        pedido: { type: 'string', description: 'El pedido completo de Beltrán, con todos los datos que dio (fechas, montos, relojes).' },
+        tarea_id: { type: 'number', description: 'Si retoma una tarea de la cola, su número.' },
+      },
+      required: ['pedido'],
     },
   },
   {
@@ -295,6 +307,15 @@ async function ejecutar(nombre: string, input: any): Promise<string> {
     if (nombre === 'revisar_guion') return await revisarGuion(input, chatActual ?? undefined);
     if (nombre === 'marcar_guion') return await marcarGuion(input.id, input.estado);
     if (nombre === 'ver_guiones') return await listarGuiones();
+    if (nombre === 'encargar_a_henry') {
+      const base = process.env.URL_OFICINA || 'https://oficina-agentes-351k.vercel.app';
+      const r = await fetch(`${base}/api/cron/henry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-cron-secret': process.env.CRON_SECRET || '' },
+        body: JSON.stringify({ pedido: input.pedido, tareaId: input.tarea_id }),
+      });
+      return r.ok ? 'Henry ya está trabajando; le manda el informe a Beltrán por Telegram cuando termine.' : `Henry no pudo arrancar (${r.status}).`;
+    }
     if (nombre === 'editar_reel') {
       const base = process.env.URL_OFICINA || 'https://oficina-agentes-351k.vercel.app';
       const r = await fetch(`${base}/api/cron/theo-editar`, {
