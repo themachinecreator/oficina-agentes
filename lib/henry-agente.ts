@@ -157,7 +157,7 @@ export async function trabajarHenry(pedido: string, tareaId?: number) {
       const r = await anthropic.messages.create({ model: MODELO_HENRY, max_tokens: 2500, system: SISTEMA(), tools: herramientas, messages: mensajes });
       if (r.stop_reason !== 'tool_use') {
         const informe = r.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim() || 'Listo.';
-        const texto = `Henry — ${informe}`;
+        const texto = `Henry — ${informe.replace(/\*\*|^#+\s*/gm, '')}`;
         await avisar(texto);
         const chat = dueñoChatId();
         if (chat) await db().from('mensajes').insert({ chat_id: Number(chat), rol: 'assistant', contenido: texto });
