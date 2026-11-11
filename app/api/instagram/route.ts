@@ -1,6 +1,6 @@
 import { after } from 'next/server';
 import { db } from '@/lib/db';
-import { firmaValida } from '@/lib/instagram';
+import { firmaValida, manychatActivo } from '@/lib/instagram';
 import { responderMargaret } from '@/lib/margaret';
 
 export const dynamic = 'force-dynamic';
@@ -31,6 +31,8 @@ export async function POST(req: Request) {
   await base.from('webhook_log').delete().lt('creado', new Date(Date.now() - 3 * 86400000).toISOString()).then(() => {}, () => {});
   if (!firmaOk) return new Response('Firma inválida', { status: 401 });
   const datos = JSON.parse(cuerpo);
+  // Con ManyChat activo, los mensajes de clientes los atiende esa conexión: evitamos responder dos veces.
+  if (await manychatActivo()) return new Response('ok');
 
   for (const entrada of datos.entry || []) {
     // Meta manda los mensajes en entry[].messaging[] o, según la configuración, en entry[].changes[] con field "messages".

@@ -35,7 +35,40 @@ export function firmaValida(cuerpo: string, firma: string | null) {
   });
 }
 
+// ---------- ManyChat (clientes reales) ----------
+// Los contactos que llegan por ManyChat se guardan con el prefijo "mc_" + su id de ManyChat.
+export const esManychat = (id: string) => id.startsWith('mc_');
+
+async function credencial(clave: string) {
+  const { data } = await db().from('credenciales').select('valor').eq('clave', clave).maybeSingle();
+  return data?.valor || '';
+}
+
+export async function manychatActivo() {
+  return !!(await credencial('manychat_token'));
+}
+
+async function enviarManychat(destinatario: string, mensajes: any[]) {
+  const t = await credencial('manychat_token');
+  if (!t) throw new Error('Falta el token de ManyChat.');
+  const r = await fetch('https://api.manychat.com/fb/sending/sendContent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` },
+    body: JSON.stringify({
+      subscriber_id: Number(destinatario.slice(3)),
+      data: { version: 'v2', content: { type: 'instagram', messages: mensajes, actions: [], quick_replies: [] } },
+    }),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || d.status === 'error') throw new Error(`ManyChat rechazó el mensaje: ${d.message || d.details?.messages?.[0]?.message || r.status}`);
+}
+
 export async function enviarDM(destinatario: string, texto: string): Promise<string[]> {
+  if (esManychat(destinatario)) {
+    const partes = texto.match(/[\s\S]{1,950}/g) ?? [texto];
+    await enviarManychat(destinatario, partes.map((p) => ({ type: 'text', text: p })));
+    return [];
+  }
   const t = await token();
   const ids: string[] = [];
   const partes = texto.match(/[\s\S]{1,950}/g) ?? [texto]; // Instagram corta en 1000 caracteres
@@ -53,6 +86,7 @@ export async function enviarDM(destinatario: string, texto: string): Promise<str
 }
 
 export async function nombreDe(igUsuario: string) {
+  if (esManychat(igUsuario)) return credencial(`mc_nombre_${igUsuario}`);
   try {
     const t = await token();
     const r = await fetch(`${rutas(t).base}/${igUsuario}?fields=name,username`, { headers: { Authorization: `Bearer ${t}` } });
