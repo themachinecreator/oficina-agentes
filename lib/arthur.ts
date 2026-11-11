@@ -28,9 +28,10 @@ ${conGoogle
     : '- Eleanor todavía no tiene acceso a Google: sus pedidos quedan como tareas en cola.'}
 ${conGoogle ? '- Henry está conectado: cuando Beltrán cuente una venta, una compra o un gasto, o pregunte cómo viene el negocio, usá registrar_venta, registrar_compra, registrar_gasto o resumen_finanzas en su nombre. Cualquier otro pedido para Henry (corregir o completar datos de la planilla como fechas, gráficos, análisis, ideas de mejora) pasáselo con encargar_a_henry, nunca con crear_tarea: él lo hace solo y le manda el informe a Beltrán por Telegram, así que no hace falta que vos avises cuando termina. Si hay tareas de Henry en cola, también se las podés pasar con encargar_a_henry indicando el número. Todo en USD. Si el resultado dice que hay varios relojes posibles, preguntale a Beltrán cuál antes de reintentar. Nunca inventes costos ni precios.' : ''}
 - Julian está conectado: cuando Beltrán pida un guion, ideas, cambios a un guion o el estado de los guiones, usá pedir_guion, pedir_ideas, revisar_guion, marcar_guion o ver_guiones. Julian le manda el guion directamente por Telegram: vos no lo repitas ni lo resumas, solo confirmá en una línea (por ejemplo "Te lo mandó Julian, es el #4"). Si Beltrán pide cambios sin decir el número, usá el último guion de la conversación.
-- Theo está conectado: cuando Beltrán diga que subió las tomas de un guion (carpeta "Videos para editar/Guion N" en el Drive), usá editar_reel. Si no dijo si quiere música libre de derechos (Theo la pone y publica cuando Beltrán aprueba) o sin música (para que él ponga un audio de tendencia y publique), preguntale antes. Theo avisa por Telegram cuando el reel está listo. Las historias del stock se publican solas cada dos días a las 18.
+- Theo está conectado: cuando Beltrán diga que subió las tomas de un guion (carpeta "Videos para editar/Guion N" en el Drive), usá editar_reel. Si no dijo si quiere música libre de derechos (Theo la pone y publica cuando Beltrán aprueba) o sin música (para que él ponga un audio de tendencia y publique), preguntale antes. Theo avisa por Telegram cuando el reel está listo. Las historias del stock se publican solas cada dos días a las 18; si Beltrán pide subirlas ya, usá publicar_historias (una por cada reloj con fotos, y Theo avisa al terminar).
 
 Reglas:
+- Todos los agentes están conectados: hacé los pedidos con sus herramientas, no con crear_tarea. crear_tarea es solo para dejar anotado un pendiente que Beltrán quiere recordar y que ninguna herramienta resuelve.
 - No inventes resultados, datos de mercado, mails ni turnos. Si no sabés algo, decilo.
 - Si un pedido es ambiguo, hacé una sola pregunta corta antes de actuar.
 - Las fechas y horas que usás en las herramientas son de Buenos Aires, en formato AAAA-MM-DDTHH:MM.
@@ -221,6 +222,7 @@ const herramientasTheo: Anthropic.Tool[] = [
       required: ['guion_id', 'musica'],
     },
   },
+  { name: 'publicar_historias', description: 'Theo arma y publica ahora en Instagram una historia por cada reloj del stock con fotos o videos (con música y ficha de precio). Avisa por Telegram al terminar.', input_schema: { type: 'object', properties: {} } },
 ];
 
 let chatActual: number | null = null;
@@ -315,6 +317,11 @@ async function ejecutar(nombre: string, input: any): Promise<string> {
         body: JSON.stringify({ pedido: input.pedido, tareaId: input.tarea_id }),
       });
       return r.ok ? 'Henry ya está trabajando; le manda el informe a Beltrán por Telegram cuando termine.' : `Henry no pudo arrancar (${r.status}).`;
+    }
+    if (nombre === 'publicar_historias') {
+      const base = process.env.URL_OFICINA || 'https://oficina-agentes-351k.vercel.app';
+      const r = await fetch(`${base}/api/cron/theo-historias?i=0&ya=1`, { method: 'POST', headers: { 'x-cron-secret': process.env.CRON_SECRET || '' } });
+      return r.ok ? 'Theo está publicando las historias; avisa al terminar.' : `Theo no pudo arrancar (${r.status}).`;
     }
     if (nombre === 'editar_reel') {
       const base = process.env.URL_OFICINA || 'https://oficina-agentes-351k.vercel.app';

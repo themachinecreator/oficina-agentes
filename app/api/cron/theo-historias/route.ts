@@ -3,6 +3,7 @@ import { cronAutorizado } from '@/lib/cron';
 import { googleConectado } from '@/lib/google';
 import { publicarHistoriaDe, relojesParaHistorias, setAhora } from '@/lib/theo';
 import { avisar } from '@/lib/telegram';
+import { db } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -14,6 +15,12 @@ async function correr(req: Request) {
   const url = new URL(req.url);
   const i = Number(url.searchParams.get('i') || 0);
   const prueba = url.searchParams.get('prueba') === '1';
+  // La tanda programada se saltea si Beltrán ya mandó a publicar en las últimas 20 horas.
+  if (i === 0 && !prueba && url.searchParams.get('ya') !== '1') {
+    const { data } = await db().from('publicaciones').select('id').eq('tipo', 'historia').eq('estado', 'publicada')
+      .gte('creado', new Date(Date.now() - 20 * 3600000).toISOString()).limit(1);
+    if (data?.length) return Response.json({ ok: true, mensaje: 'Ya se publicaron historias hoy.' });
+  }
   const relojes = await relojesParaHistorias();
   if (i >= relojes.length) return Response.json({ ok: true, fin: true });
   const r = relojes[i];
