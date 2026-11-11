@@ -45,7 +45,40 @@ async function credencial(clave: string) {
 }
 
 export async function manychatActivo() {
-  return !!(await credencial('manychat_token'));
+  return !!(await credencial('manychat_token')) || !!(await credencial('sendpulse_client_id'));
+}
+
+// ---------- SendPulse (clientes reales) ----------
+// Los contactos de SendPulse se guardan con el prefijo "sp_" + su id de contacto.
+export const esSendpulse = (id: string) => id.startsWith('sp_');
+
+async function tokenSendpulse() {
+  const vence = Number(await credencial('sendpulse_token_vence'));
+  if (vence > Date.now() + 60000) return credencial('sendpulse_token');
+  const r = await fetch('https://api.sendpulse.com/oauth/access_token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ grant_type: 'client_credentials', client_id: await credencial('sendpulse_client_id'), client_secret: await credencial('sendpulse_client_secret') }),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.access_token) throw new Error(`SendPulse rechazó las credenciales: ${d.error_description || d.message || r.status}`);
+  const ahora = new Date().toISOString();
+  await db().from('credenciales').upsert([
+    { clave: 'sendpulse_token', valor: d.access_token, actualizado: ahora },
+    { clave: 'sendpulse_token_vence', valor: String(Date.now() + (d.expires_in || 3600) * 1000), actualizado: ahora },
+  ]);
+  return d.access_token as string;
+}
+
+async function enviarSendpulse(destinatario: string, mensajes: any[]) {
+  const t = await tokenSendpulse();
+  const r = await fetch('https://api.sendpulse.com/instagram/contacts/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` },
+    body: JSON.stringify({ contact_id: destinatario.slice(3), messages: mensajes }),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || d.success === false) throw new Error(`SendPulse rechazó el mensaje: ${d.message || JSON.stringify(d.errors || d).slice(0, 200)}`);
 }
 
 async function enviarManychat(destinatario: string, mensajes: any[]) {
@@ -64,6 +97,11 @@ async function enviarManychat(destinatario: string, mensajes: any[]) {
 }
 
 export async function enviarDM(destinatario: string, texto: string): Promise<string[]> {
+  if (esSendpulse(destinatario)) {
+    const partes = texto.match(/[\s\S]{1,950}/g) ?? [texto];
+    for (const p of partes) await enviarSendpulse(destinatario, [{ type: 'text', message: { text: p } }]);
+    return [];
+  }
   if (esManychat(destinatario)) {
     const partes = texto.match(/[\s\S]{1,950}/g) ?? [texto];
     await enviarManychat(destinatario, partes.map((p) => ({ type: 'text', text: p })));
@@ -86,7 +124,7 @@ export async function enviarDM(destinatario: string, texto: string): Promise<str
 }
 
 export async function nombreDe(igUsuario: string) {
-  if (esManychat(igUsuario)) return credencial(`mc_nombre_${igUsuario}`);
+  if (esManychat(igUsuario) || esSendpulse(igUsuario)) return credencial(`nombre_${igUsuario}`) || credencial(`mc_nombre_${igUsuario}`);
   try {
     const t = await token();
     const r = await fetch(`${rutas(t).base}/${igUsuario}?fields=name,username`, { headers: { Authorization: `Bearer ${t}` } });
