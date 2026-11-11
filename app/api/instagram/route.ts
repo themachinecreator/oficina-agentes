@@ -17,9 +17,13 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const cuerpo = await req.text();
-  if (!firmaValida(cuerpo, req.headers.get('x-hub-signature-256'))) return new Response('Firma inválida', { status: 401 });
-  const datos = JSON.parse(cuerpo);
   const base = db();
+  const firmaOk = firmaValida(cuerpo, req.headers.get('x-hub-signature-256'));
+  // Registro para diagnóstico: se guardan solo los últimos 3 días.
+  await base.from('webhook_log').insert({ origen: 'instagram', firma_ok: firmaOk, cuerpo: cuerpo.slice(0, 4000) }).then(() => {}, () => {});
+  await base.from('webhook_log').delete().lt('creado', new Date(Date.now() - 3 * 86400000).toISOString()).then(() => {}, () => {});
+  if (!firmaOk) return new Response('Firma inválida', { status: 401 });
+  const datos = JSON.parse(cuerpo);
 
   for (const entrada of datos.entry || []) {
     for (const ev of entrada.messaging || []) {
