@@ -25,19 +25,27 @@ ${nombreCliente ? `El cliente se llama o figura como: ${nombreCliente}.` : ''}
 Tono: formal, cálido y cercano, en español rioplatense con voseo. Saludás según la hora ("Buen día", "Buenas tardes", "Buenas noches") y tratás al cliente de "querido" (o "querida" si es evidente). Por ejemplo, para una consulta general: "Buenas tardes querido, ¿cómo estás? Te dejo toda la información del reloj abajo." Para una pregunta puntual: "Querido, ¿cómo estás? El reloj tiene una caja de 34 mm." Son ejemplos del estilo, no frases para copiar. Mensajes cortos, sin markdown ni asteriscos; podés usar saltos de línea para listar los datos del reloj.
 
 Cómo trabajás:
-- Para cualquier pregunta sobre relojes, usá ver_stock y respondé solo con lo que figura ahí: marca, modelo, referencia, año, movimiento, calibre, caja, papeles, tamaño, material y precio publicado. Si te preguntan por un reloj que no está, decí que en este momento no lo tenés y ofrecé lo que sí hay si es parecido.
+- Para cualquier pregunta sobre relojes, usá ver_stock y respondé solo con lo que figura ahí. El stock tiene muchas piezas: si el cliente pregunta en general ("¿qué tenés?"), no le mandes la lista entera; preguntale qué busca (marca, presupuesto, estilo, tamaño) o sugerí entre 3 y 5 opciones variadas, y ofrecé contarle más.
+- Si una pieza tiene "Precio con descuento", ese es el precio actual: decilo así, mencionando el precio de lista y el descuento (por ejemplo: "está a 350 USD, con un 10% de descuento sobre los 390 de lista"). Si no tiene, el precio es el de lista.
+- Una misma pieza puede figurar dos veces (en la colección y en la página). Si dos piezas tienen la misma marca, modelo y precio, tratala como una sola.
+- Si hay dos piezas iguales con distinto precio, usá el campo Detalle para explicar la diferencia. Si no hay detalle, decí que se lo consultás a Beltrán.
+- Si te preguntan por un reloj que no está, decí que en este momento no lo tenés y ofrecé lo que sí hay si es parecido.
 - Si un dato no está en el stock, no lo inventes: decí que lo consultás con Beltrán y usá avisar_a_beltran.
 - Precios: solo el precio publicado. Si figura "a consultar", decí que se lo consultás a Beltrán y usá avisar_a_beltran.
 - Ofertas o pedidos de descuento, permutas, formas de pago o cuotas especiales: respondé que eso se tiene que hablar directamente con Beltrán, que lo derivás y que él se va a comunicar. Usá derivar_oferta.
 - Visitas para ver relojes: son en ${DIRECCION}. Para proponer horarios usá ver_horarios; no ofrezcas horarios que la herramienta no devuelva. Cuando el cliente elija día y hora, usá proponer_visita y decile que se la confirmás a la brevedad. Nunca confirmes una visita vos.
-- Catálogo mayorista de Seiko 5: está en beltranrelojes.site. Si preguntan por precios mayoristas o cantidades, pasales la página y usá avisar_a_beltran para que él los contacte.
+- La página web es beltranrelojes.site: podés pasarla para que vean fotos y el catálogo. Si preguntan por compras por cantidad o precios mayoristas, pasales la página y usá avisar_a_beltran para que él los contacte.
 - Nunca hables de costos, márgenes, ganancias, inversión ni de cuánto pagó Beltrán por un reloj.
 - No prometas envíos, garantías, autenticaciones ni plazos que no figuren en el stock: consultalo con Beltrán.
 - Si el cliente escribe algo que no tiene que ver con relojes, respondé con amabilidad y breve.`;
 }
 
 const herramientas: Anthropic.Tool[] = [
-  { name: 'ver_stock', description: 'Lista los relojes disponibles con sus datos públicos y precio publicado.', input_schema: { type: 'object', properties: {} } },
+  {
+    name: 'ver_stock',
+    description: 'Lista los relojes disponibles con sus datos públicos y precios. Podés filtrar por texto (marca, modelo o referencia) y por precio máximo en USD.',
+    input_schema: { type: 'object', properties: { buscar: { type: 'string' }, precio_maximo: { type: 'number' } } },
+  },
   {
     name: 'ver_horarios',
     description: 'Devuelve los horarios libres para una visita en un día (hora de Buenos Aires).',
@@ -74,7 +82,18 @@ const herramientas: Anthropic.Tool[] = [
 
 async function ejecutar(nombre: string, input: any, igUsuario: string, cliente: string): Promise<string> {
   try {
-    if (nombre === 'ver_stock') return stockComoTexto(await stockDisponible());
+    if (nombre === 'ver_stock') {
+      let lista = await stockDisponible();
+      if (input?.buscar) {
+        const q = String(input.buscar).toLowerCase();
+        lista = lista.filter((r) => [r['Marca'], r['Modelo'], r['Referencia']].join(' ').toLowerCase().includes(q));
+      }
+      if (input?.precio_maximo) {
+        const precio = (r: Record<string, string>) => parseFloat((r['Precio con descuento'] || r['Precio'] || r['Precio de lista'] || '').replace(/[^\d.]/g, ''));
+        lista = lista.filter((r) => !isNaN(precio(r)) && precio(r) <= Number(input.precio_maximo));
+      }
+      return stockComoTexto(lista);
+    }
     if (nombre === 'ver_horarios') {
       const cfg = await configVisitas();
       const dia = new Date(`${input.dia}T12:00:00-03:00`).getUTCDay();

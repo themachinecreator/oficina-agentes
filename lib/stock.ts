@@ -1,12 +1,14 @@
 import { db } from './db';
 import { exportarPlanillaCsv } from './google';
 
-// Solo estas columnas pueden llegar a un cliente. Costos, gastos y ganancias quedan afuera a propósito.
+// Solo estas columnas pueden llegar a un cliente. Costos, gastos, ganancias, ahorro e inversión quedan afuera a propósito.
 const PUBLICAS: Record<string, string> = {
   marca: 'Marca', modelo: 'Modelo', referencia: 'Referencia', 'año': 'Año', ano: 'Año',
   movimiento: 'Movimiento', maquinaria: 'Calibre', caja: 'Caja original', papeles: 'Papeles',
-  'tamaño': 'Tamaño', tamano: 'Tamaño', material: 'Material', 'precio publicado': 'Precio', 'precio de lista': 'Precio', fotos: 'Fotos',
-  estado: 'Estado',
+  'tamaño': 'Tamaño', tamano: 'Tamaño', material: 'Material', 'condición': 'Condición', condicion: 'Condición',
+  detalle: 'Detalle', fotos: 'Fotos', estado: 'Estado',
+  'precio publicado': 'Precio', 'precio de lista': 'Precio', 'precio lista usd': 'Precio de lista',
+  descuento: 'Descuento', 'precio final usd': 'Precio con descuento',
 };
 
 function parsearCsv(texto: string): string[][] {
@@ -30,30 +32,61 @@ function parsearCsv(texto: string): string[][] {
 
 const norm = (s: string) => s.trim().toLowerCase();
 
-export type Reloj = Record<string, string>;
-let cache: { cuando: number; relojes: Reloj[] } | null = null;
+function formatearDescuento(v: string) {
+  const n = Number(v.replace('%', '').replace(',', '.'));
+  if (!isFinite(n) || n <= 0) return '';
+  return `${Math.round(n <= 1 ? n * 100 : n)}%`;
+}
 
-export async function stockDisponible(): Promise<Reloj[]> {
-  if (cache && Date.now() - cache.cuando < 5 * 60000) return cache.relojes;
-  const { data } = await db().from('credenciales').select('valor').eq('clave', 'stock_sheet_id').maybeSingle();
-  if (!data?.valor) throw new Error('Falta configurar la planilla de stock.');
-  const filas = parsearCsv(await exportarPlanillaCsv(data.valor)).filter((f) => f.some((c) => c.trim()));
-  const encabezado = filas[0].map(norm);
+export type Reloj = Record<string, string>;
+
+function leerPlanilla(csv: string, origen: string): Reloj[] {
+  const filas = parsearCsv(csv).filter((f) => f.some((c) => c.trim()));
+  const iEnc = filas.findIndex((f) => f.map(norm).includes('marca'));
+  if (iEnc < 0) return [];
+  const encabezado = filas[iEnc].map(norm);
   const iVenta = encabezado.indexOf('precio venta');
   const iEstado = encabezado.indexOf('estado');
   const relojes: Reloj[] = [];
-  for (const f of filas.slice(1)) {
-    if (!f[0]?.trim() && !f[1]?.trim()) continue;
-    const vendido = (iVenta >= 0 && f[iVenta]?.trim()) || (iEstado >= 0 && /vendid/i.test(f[iEstado] || ''));
+  for (const f of filas.slice(iEnc + 1)) {
+    const marca = (f[0] || '').trim();
+    if (!marca || /^total$/i.test(marca)) continue;
+    const vendido = (iVenta >= 0 && f[iVenta]?.trim()) || (iEstado >= 0 && /vendid|reservad/i.test(f[iEstado] || ''));
     if (vendido) continue;
     const r: Reloj = {};
     encabezado.forEach((h, i) => {
       const etiqueta = PUBLICAS[h];
-      if (etiqueta && f[i]?.trim()) r[etiqueta] = f[i].trim();
+      let v = f[i]?.trim();
+      if (!etiqueta || !v) return;
+      if (etiqueta === 'Descuento') { v = formatearDescuento(v); if (!v) return; }
+      if (/precio/i.test(etiqueta) && /^\d+([.,]\d+)?$/.test(v)) v = `${Math.round(Number(v.replace(',', '.')) * 100) / 100} USD`;
+      r[etiqueta] = v;
     });
-    if (!r['Precio']) r['Precio'] = 'a consultar';
+    if (!r['Precio'] && !r['Precio de lista']) r['Precio'] = 'a consultar';
+    r['Origen'] = origen;
     relojes.push(r);
   }
+  return relojes;
+}
+
+let cache: { cuando: number; relojes: Reloj[] } | null = null;
+
+export async function stockDisponible(): Promise<Reloj[]> {
+  if (cache && Date.now() - cache.cuando < 5 * 60000) return cache.relojes;
+  const { data } = await db().from('credenciales').select('clave, valor')
+    .in('clave', ['stock_sheet_id', 'stock_pagina_sheet_id', 'notas_stock']);
+  const valor = (k: string) => data?.find((d) => d.clave === k)?.valor;
+  const relojes: Reloj[] = [];
+  if (valor('stock_sheet_id')) relojes.push(...leerPlanilla(await exportarPlanillaCsv(valor('stock_sheet_id')!), 'colección'));
+  if (valor('stock_pagina_sheet_id')) relojes.push(...leerPlanilla(await exportarPlanillaCsv(valor('stock_pagina_sheet_id')!), 'página'));
+  if (!relojes.length) throw new Error('No pude leer ninguna planilla de stock.');
+  // Notas manuales por referencia y precio (ej.: diferencias entre dos piezas iguales).
+  try {
+    for (const n of JSON.parse(valor('notas_stock') || '[]') as { referencia: string; precio: string; detalle: string }[]) {
+      const r = relojes.find((x) => (x['Referencia'] || '') === n.referencia && (x['Precio'] || '').startsWith(n.precio));
+      if (r) r['Detalle'] = r['Detalle'] ? `${r['Detalle']}. ${n.detalle}` : n.detalle;
+    }
+  } catch { /* notas mal formadas: se ignoran */ }
   cache = { cuando: Date.now(), relojes };
   return relojes;
 }
