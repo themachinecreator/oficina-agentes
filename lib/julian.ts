@@ -25,6 +25,7 @@ async function rendimientoCuenta() {
 }
 
 async function contexto() {
+  const { data: ref } = await db().from('credenciales').select('valor').eq('clave', 'julian_referencia').maybeSingle();
   const [rend, stock, previos] = await Promise.all([
     rendimientoCuenta(),
     stockDisponible().catch(() => []),
@@ -35,6 +36,7 @@ async function contexto() {
 Relojes en stock (podés destacarlos de vez en cuando, sin que todo sea venta): ${enStock || 'sin datos'}.
 Posteos de la cuenta con más interacción (likes + comentarios):
 ${rend || 'sin datos'}
+${ref?.valor ? `Guion de referencia que le gusta a Beltrán (imitá su estructura, su ritmo y su tono; el tema es solo un ejemplo):\n${ref.valor}\n` : ''}
 Guiones ya propuestos (no repitas temas):
 ${(previos.data || []).map((g) => `- ${g.titulo} [${g.estado}]`).join('\n') || 'ninguno todavía'}`;
 }
@@ -49,19 +51,21 @@ Reglas:
 - Español rioplatense, con voseo, tono culto pero cercano. Sin markdown, sin asteriscos ni numerales: es para Telegram.
 - Datos históricos y técnicos correctos. Si no estás seguro de un dato (fecha, cifra, calibre), no lo uses o marcalo con "(verificar)".
 - Los primeros 2 segundos tienen que enganchar: una pregunta, una afirmación sorprendente o una imagen fuerte.
-- Duración por defecto: entre 30 y 60 segundos.
+- Duración por defecto: entre 30 y 60 segundos, en 4 a 6 tramos.
+- Frases cortas y con datos concretos (años, cifras, nombres), como habla Beltrán.
+- Si el reloj del video está en stock, cerrá con un llamado como "Este lo tenemos en Beltrán Relojes. Escribinos por privado." Si no está en stock, cerrá con una pregunta al público para generar comentarios.
 - Nunca menciones costos, ganancias ni precios de compra del negocio.`;
 
-const FORMATO_GUION = `Escribí el guion con estas secciones, en este orden y con estos títulos en mayúsculas:
-TÍTULO: (corto, para identificarlo)
-IDEA: (una línea: de qué va y por qué funciona)
-GANCHO: (lo que se ve y se dice en los primeros 2 segundos)
-GUION: tomas numeradas. Para cada una: duración aproximada, qué se ve (plano y acción), qué se dice (voz o a cámara) y texto en pantalla si va.
-QUÉ GRABAR: lista de tomas para que Beltrán grabe de corrido, con indicaciones prácticas (luz, ángulo, fondo, qué reloj).
-PARA THEO: ritmo de cortes, música sugerida (estilo, no canciones con nombre), subtítulos, transiciones y cierre.
-TEXTO DE LA PUBLICACIÓN: corto, con la pregunta al público si aplica.
-HASHTAGS: entre 6 y 10, mezclando español e inglés.
-PORTADA: qué imagen y qué texto.`;
+const FORMATO_GUION = `Escribí el guion con el mismo formato que el guion de referencia, en este orden:
+TÍTULO: nombre del guion y duración total, por ejemplo "Guion: TAG Heuer 2000 Professional (40 s)".
+Tramos con tiempo, nombre del tramo y plano entre paréntesis, y debajo el texto que dice Beltrán entre comillas. Por ejemplo:
+[0–4 s] Gancho (primer plano del reloj girando en la mano)
+"Este reloj ayudó a salvar a TAG Heuer. Te cuento por qué."
+Si va texto en pantalla, agregalo en una línea aparte que empiece con "En pantalla:".
+TEXTO DE LA PUBLICACIÓN: una o dos líneas, puede llevar un emoji.
+HASHTAGS: entre 6 y 10, mezclando español e inglés, siempre con #beltranrelojes.
+QUÉ GRABAR: lista corta de las tomas para grabar de corrido (qué reloj, luz, fondo, ángulo).
+PARA THEO: ritmo de cortes, música sugerida (estilo, no canciones con nombre), subtítulos y cierre.`;
 
 async function generar(pedido: string, maxTokens = 2500) {
   const r = await anthropic.messages.create({
