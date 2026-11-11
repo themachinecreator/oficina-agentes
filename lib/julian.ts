@@ -133,8 +133,10 @@ export async function listarGuiones() {
 // Julian mira un video ya armado (por su descripción) y propone qué sumarle, sin reescribirlo.
 export async function sugerirParaVideo(descripcion: string) {
   const r = await anthropic.messages.create({
-    model: MODELO_JULIAN, max_tokens: 900, system: SISTEMA,
+    model: MODELO_JULIAN, max_tokens: 4000, system: SISTEMA,
     messages: [{ role: 'user', content: `Theo te muestra este video ya editado para publicar en @beltranrelojes:\n${descripcion}\n\nPropone en pocas líneas, en texto plano para Telegram, qué le agregarías para que rinda más: gancho de texto en los primeros 2 segundos (dame el texto exacto), textos en pantalla, tipo de audio o música, y el texto de la publicación con hashtags (siempre #beltranrelojes). Concreto y breve.` }],
   });
-  return r.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n').trim().replace(/\*\*|^#+\s*/gm, '');
+  const texto = r.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n').trim().replace(/\*\*|^#+\s*/gm, '');
+  if (!texto) throw new Error(`respuesta vacía (${r.stop_reason})`);
+  return texto;
 }
