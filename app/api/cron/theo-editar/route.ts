@@ -8,9 +8,9 @@ export const maxDuration = 300;
 // Arthur llama acá; respondemos enseguida y Theo edita en segundo plano (puede llevar un par de minutos).
 export async function POST(req: Request) {
   if (!cronAutorizado(req)) return Response.json({ error: 'No autorizado' }, { status: 401 });
-  const { guionId, musica, subtitulos, tipo, nombre, descripcion } = await req.json().catch(() => ({}));
+  const { guionId, musica, subtitulos, tipo, nombre, descripcion, recuadro } = await req.json().catch(() => ({}));
   if (tipo === 'marca') {
-    after(() => marcaDeAgua({ nombre, descripcion }).then(() => {}).catch(() => {}));
+    after(() => marcaDeAgua({ nombre, descripcion, recuadro: !!recuadro }).then(() => {}).catch(() => {}));
     return Response.json({ ok: true });
   }
   if (!Number.isFinite(Number(guionId))) return Response.json({ error: 'Falta el número de guion.' }, { status: 400 });

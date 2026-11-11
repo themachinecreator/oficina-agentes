@@ -166,7 +166,7 @@ export async function editarReel(guionId: number, op: OpcionesReel) {
 
 // ---------- Video ya terminado (por ejemplo hecho con IA): formato Reel + marca de agua ----------
 // Toma el video más reciente suelto en "Videos para editar" (o el que contenga `nombre`).
-export async function marcaDeAgua(op: { nombre?: string; descripcion?: string }) {
+export async function marcaDeAgua(op: { nombre?: string; descripcion?: string; recuadro?: boolean }) {
   const base = await carpetaRaiz();
   const raiz = (await listarDrive(`${base ? `'${base}' in parents and ` : ''}mimeType = 'application/vnd.google-apps.folder' and trashed = false`))
     .filter((f: any) => /videos?\s+para\s+editar/i.test(f.name));
@@ -193,8 +193,10 @@ export async function marcaDeAgua(op: { nombre?: string; descripcion?: string })
       : `[0:v]${hdr}split[a][b];[a]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=40:6,eq=brightness=-0.12:saturation=0.8[bg];[b]scale=1080:-2:flags=lanczos[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[base]`;
     const archivoLogo = await logo(path.join(dir, 'logo.png'));
     if (!archivoLogo) throw new Error('No encontré el logo (PNG suelto en la carpeta Watches).');
-    const yLogo = `${abajo}-h-34`;
-    const filtro = `${fondo};[1:v]scale=150:-1,format=rgba,colorchannelmixer=aa=0.8[lg];[base][lg]overlay=W-w-34:${yLogo}[v]`;
+    // Con recuadro: un rectángulo blanco en la esquina inferior derecha del video y el logo encima.
+    const filtro = op.recuadro
+      ? `${fondo.replace('[base]', '[pre]')};[pre]drawbox=x=iw-290:y=${abajo}-84:w=290:h=84:color=white:t=fill[base];[1:v]scale=230:-1,format=rgba[lg];[base][lg]overlay=W-145-w/2:${abajo}-42-h/2[v]`
+      : `${fondo};[1:v]scale=150:-1,format=rgba,colorchannelmixer=aa=0.8[lg];[base][lg]overlay=W-w-34:${abajo}-h-34[v]`;
     const final = path.join(dir, 'final.mp4');
     await ffmpeg([
       '-i', original, '-i', archivoLogo, '-filter_complex', filtro, '-map', '[v]', ...(audio ? ['-map', '0:a:0'] : []),
@@ -205,7 +207,7 @@ export async function marcaDeAgua(op: { nombre?: string; descripcion?: string })
     const url = await subirPublicacion(final, nombre);
     await db().from('publicaciones').insert({ tipo: 'reel', reloj: v.name, archivo: nombre, estado: 'para aprobar' });
     await setAhora('julian', 'Mirando el video de Theo para sugerir mejoras.', 'ok');
-    const desc = `${op.descripcion || 'Video publicitario de un reloj'}. Dura ${Math.round(dur)} s, formato vertical para Reels, ${audio ? 'con audio propio' : 'sin audio'}, logo chico abajo a la derecha.`;
+    const desc = `${op.descripcion || 'Video publicitario de un reloj'}. Dura ${Math.round(dur)} s, formato vertical para Reels, ${audio ? 'con audio propio' : 'sin audio'}, ${op.recuadro ? 'logo sobre un recuadro blanco abajo a la derecha' : 'logo chico abajo a la derecha'}.`;
     const ideas = await sugerirParaVideo(desc).catch(() => '');
     await setAhora('julian', 'Le pasó sus sugerencias a Theo.', 'ok');
     const texto = `Theo — video listo con tu marca de agua (${Math.round(dur)} s, formato Reel)\nVer video: ${url}${ideas ? `\n\nJulian sugiere:\n${ideas}` : ''}`;
