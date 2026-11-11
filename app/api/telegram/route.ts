@@ -1,9 +1,10 @@
+import { after } from 'next/server';
 import { db } from '@/lib/db';
 import { enviar, escribiendo, telegram } from '@/lib/telegram';
 import { resolverAprobacion } from '@/lib/aprobaciones';
 import { responderArthur } from '@/lib/arthur';
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
 
 const ok = () => new Response('ok');
@@ -51,14 +52,20 @@ export async function POST(req: Request) {
   if (error) return ok();
 
   await escribiendo(chatId);
-  let respuesta: string;
-  try {
-    respuesta = await responderArthur(chatId, msg.text);
-  } catch (e: any) {
-    console.error(e);
-    respuesta = 'Tuve un problema para responderte. Revisá que la clave de Claude y el crédito de la API estén bien.';
-  }
-  await db().from('mensajes').insert({ chat_id: chatId, rol: 'assistant', contenido: respuesta });
-  await enviar(chatId, respuesta);
+  // Respondemos a Telegram enseguida y trabajamos después (un guion puede tardar).
+  after(async () => {
+    const latido = setInterval(() => escribiendo(chatId), 5000);
+    let respuesta: string;
+    try {
+      respuesta = await responderArthur(chatId, msg.text);
+    } catch (e: any) {
+      console.error(e);
+      respuesta = 'Tuve un problema para responderte. Revisá que la clave de Claude y el crédito de la API estén bien.';
+    } finally {
+      clearInterval(latido);
+    }
+    await db().from('mensajes').insert({ chat_id: chatId, rol: 'assistant', contenido: respuesta });
+    await enviar(chatId, respuesta);
+  });
   return ok();
 }

@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { db, setAhora, AgenteId } from './db';
 import { anthropic, MODELO, fechaBA, PERFIL_BELTRAN } from './claude';
 import { registrarVenta, registrarCompra, registrarGasto, resumenFinanzas } from './henry';
+import { pedirGuion, pedirIdeas, revisarGuion, marcarGuion, listarGuiones } from './julian';
 import { googleConectado, eventos, crearEvento, superposiciones, buscarCorreos, buscarEnDrive, leerDocumento, horaBA } from './google';
 
 const EQUIPO = `
@@ -26,7 +27,8 @@ ${conGoogle
     ? '- Eleanor está conectada: con sus herramientas (ver_agenda, crear_evento, buscar_mails, buscar_en_drive, leer_documento) resolvés vos mismo, en su nombre, lo que tenga que ver con agenda, mails y Drive. Decí "Eleanor" cuando corresponda. Ella además revisa el mail sola cada 10 minutos y le avisa a Beltrán.'
     : '- Eleanor todavía no tiene acceso a Google: sus pedidos quedan como tareas en cola.'}
 ${conGoogle ? '- Henry está conectado: cuando Beltrán cuente una venta, una compra o un gasto, o pregunte cómo viene el negocio, usá registrar_venta, registrar_compra, registrar_gasto o resumen_finanzas en su nombre. Todo en USD. Si el resultado dice que hay varios relojes posibles, preguntale a Beltrán cuál antes de reintentar. Nunca inventes costos ni precios.' : ''}
-- Julian y Theo todavía no ejecutan nada: sus pedidos quedan como tareas en cola (crear_tarea). Decíselo con naturalidad la primera vez que corresponda, sin repetirlo en cada mensaje.
+- Julian está conectado: cuando Beltrán pida un guion, ideas, cambios a un guion o el estado de los guiones, usá pedir_guion, pedir_ideas, revisar_guion, marcar_guion o ver_guiones. Julian le manda el guion directamente por Telegram: vos no lo repitas ni lo resumas, solo confirmá en una línea (por ejemplo "Te lo mandó Julian, es el #4"). Si Beltrán pide cambios sin decir el número, usá el último guion de la conversación.
+- Theo todavía no ejecuta nada: sus pedidos quedan como tareas en cola (crear_tarea). Decíselo con naturalidad la primera vez que corresponda, sin repetirlo en cada mensaje.
 
 Reglas:
 - No inventes resultados, datos de mercado, mails ni turnos. Si no sabés algo, decilo.
@@ -162,6 +164,39 @@ const herramientasHenry: Anthropic.Tool[] = [
   },
 ];
 
+const herramientasJulian: Anthropic.Tool[] = [
+  {
+    name: 'pedir_guion',
+    description: 'Julian escribe un guion completo de video corto (gancho, tomas, qué grabar, indicaciones para Theo, texto y hashtags) y se lo manda a Beltrán por Telegram.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        tema: { type: 'string', description: 'Tema o reloj, si Beltrán lo dio. Si no, Julian elige.' },
+        formato: { type: 'string', description: 'Ej.: historia, dato curioso, comparación, mito, detrás de escena' },
+        notas: { type: 'string', description: 'Cualquier indicación extra de Beltrán (duración, estilo, reloj a mostrar)' },
+      },
+    },
+  },
+  {
+    name: 'pedir_ideas',
+    description: 'Julian, como director creativo, propone ideas de videos y un orden para la semana. Se las manda a Beltrán por Telegram.',
+    input_schema: { type: 'object', properties: { cantidad: { type: 'number' }, enfoque: { type: 'string' } } },
+  },
+  {
+    name: 'revisar_guion',
+    description: 'Julian corrige un guion según lo que pida Beltrán y le manda la versión nueva.',
+    input_schema: { type: 'object', properties: { id: { type: 'number' }, cambios: { type: 'string' } }, required: ['id', 'cambios'] },
+  },
+  {
+    name: 'marcar_guion',
+    description: 'Cambia el estado de un guion (grabado, editado, publicado, descartado).',
+    input_schema: { type: 'object', properties: { id: { type: 'number' }, estado: { type: 'string', enum: ['grabado', 'editado', 'publicado', 'descartado'] } }, required: ['id', 'estado'] },
+  },
+  { name: 'ver_guiones', description: 'Lista los guiones pendientes con su estado.', input_schema: { type: 'object', properties: {} } },
+];
+
+let chatActual: number | null = null;
+
 const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 
 function reglaVisita(inicio: string, fin: string): string | null {
@@ -239,6 +274,11 @@ async function ejecutar(nombre: string, input: any): Promise<string> {
     if (nombre === 'registrar_compra') return await registrarCompra(input);
     if (nombre === 'registrar_gasto') return await registrarGasto(input);
     if (nombre === 'resumen_finanzas') return await resumenFinanzas(input?.mes);
+    if (nombre === 'pedir_guion') { const g = await pedirGuion(input || {}, chatActual ?? undefined); return `Julian mandó el guion #${g.id}: ${g.titulo}.`; }
+    if (nombre === 'pedir_ideas') { await pedirIdeas(input || {}, chatActual ?? undefined); return 'Julian mandó las ideas.'; }
+    if (nombre === 'revisar_guion') return await revisarGuion(input, chatActual ?? undefined);
+    if (nombre === 'marcar_guion') return await marcarGuion(input.id, input.estado);
+    if (nombre === 'ver_guiones') return await listarGuiones();
   } catch (e: any) {
     return `Error: ${e.message}`;
   }
@@ -265,7 +305,8 @@ export async function responderArthur(chatId: number, texto: string): Promise<st
   if (!mensajes.length || mensajes[mensajes.length - 1].role !== 'user') mensajes.push({ role: 'user', content: texto });
 
   await setAhora('arthur', 'Conversando con Beltrán por Telegram.', 'ok');
-  const herramientas = conGoogle ? [...herramientasBase, ...herramientasGoogle, ...herramientasHenry] : herramientasBase;
+  chatActual = chatId;
+  const herramientas = conGoogle ? [...herramientasBase, ...herramientasGoogle, ...herramientasHenry, ...herramientasJulian] : [...herramientasBase, ...herramientasJulian];
 
   for (let vuelta = 0; vuelta < 8; vuelta++) {
     const respuesta = await anthropic.messages.create({
