@@ -1,5 +1,7 @@
 import { db, setAhora } from './db';
 import { primeraHoja, leerRango, escribirRango, agregarFila, columnaLetra } from './google';
+import { carpetasRelojes, asignarCarpetas } from './fotos';
+import { db as _db } from './db';
 import { hoyISO } from './claude';
 
 // Henry trabaja sobre la planilla "Watches": es el libro de compras y ventas.
@@ -11,7 +13,7 @@ const COLUMNAS = {
   marca: ['marca'], modelo: ['modelo'], referencia: ['referencia'], anio: ['año', 'ano'],
   compra: ['precio compra'], gastos: ['gastos'], total: ['total'], venta: ['precio venta'],
   ganancia: ['ganancia'], lista: ['precio de lista', 'precio publicado'], inversion: ['inversion inicial', 'inversión inicial'],
-  fechaCompra: ['fecha compra'], fechaVenta: ['fecha venta'], detalle: ['detalle'],
+  fechaCompra: ['fecha compra'], fechaVenta: ['fecha venta'], detalle: ['detalle'], movimiento: ['movimiento'],
 };
 
 export function numero(v: any): number | null {
@@ -24,6 +26,11 @@ export function numero(v: any): number | null {
   return isFinite(n) ? n : null;
 }
 const usd = (n: number) => `${Math.round(n).toLocaleString('es-AR')} USD`;
+
+async function notasStock(): Promise<{ referencia: string; precio: string; detalle: string }[]> {
+  const { data } = await _db().from('credenciales').select('valor').eq('clave', 'notas_stock').maybeSingle();
+  try { return JSON.parse(data?.valor || '[]'); } catch { return []; }
+}
 
 async function libroId() {
   const { data } = await db().from('credenciales').select('valor').eq('clave', 'stock_sheet_id').maybeSingle();
@@ -41,7 +48,22 @@ async function leerLibro(): Promise<Libro> {
     const i = encabezado.findIndex((h) => nombres.includes(h));
     if (i >= 0) col[k] = i;
   }
-  const filas = valores.slice(1).map((v, i) => ({ n: i + 2, v })).filter((f) => f.v.some((c) => String(c ?? '').trim()));
+  let filas = valores.slice(1).map((v, i) => ({ n: i + 2, v })).filter((f) => f.v.some((c) => String(c ?? '').trim()));
+  // Henry trabaja solo con los relojes que tienen carpeta en "Fotos relojes"; las ventas ya hechas quedan como historial.
+  const notas = await notasStock();
+  const comoReloj = (f: Fila) => {
+    const r: Record<string, string> = {};
+    const etiquetas: Record<string, string> = { marca: 'Marca', modelo: 'Modelo', referencia: 'Referencia', detalle: 'Detalle', movimiento: 'Movimiento' };
+    for (const [k, e] of Object.entries(etiquetas)) if (col[k] !== undefined && f.v[col[k]] !== undefined) r[e] = String(f.v[col[k]]);
+    const lista = col.lista !== undefined ? String(f.v[col.lista] ?? '') : '';
+    for (const n of notas) if (r['Referencia'] === n.referencia && lista.startsWith(n.precio)) r['Detalle'] = r['Detalle'] ? `${r['Detalle']}. ${n.detalle}` : n.detalle;
+    return r;
+  };
+  const enStock = filas.filter((f) => col.venta === undefined || numero(f.v[col.venta]) === null);
+  const relojes = enStock.map(comoReloj);
+  const asignado = asignarCarpetas(relojes, await carpetasRelojes().catch(() => []));
+  const conCarpeta = new Set(enStock.filter((_, i) => asignado.has(relojes[i])).map((f) => f.n));
+  filas = filas.filter((f) => !enStock.includes(f) || conCarpeta.has(f.n));
   return { id, hoja, col, filas };
 }
 
@@ -125,9 +147,10 @@ export async function registrarCompra(input: {
   poner('fechaCompra', fechaValida(input.fecha));
   await agregarFila(l.id, l.hoja, fila);
   await setAhora('henry', `Anotó la compra de un ${input.marca} ${input.modelo}.`, 'ok');
+  // Recordatorio: sin carpeta de fotos, el reloj no entra en el stock de Margaret ni en los números de Henry.
   return `Compra registrada: ${input.marca} ${input.modelo}${input.referencia ? ` ref. ${input.referencia}` : ''}, costo total ${usd(input.precio_compra + gastos)}.` +
     (input.precio_lista ? '' : ' Falta el precio de lista: hasta que lo cargues, Margaret lo ofrece "a consultar".') +
-    ' Completá en la planilla los datos técnicos (movimiento, tamaño, material) para que Margaret pueda describirlo.';
+    ' Completá en la planilla los datos técnicos (movimiento, tamaño, material) y creá su carpeta con fotos en "Fotos relojes": hasta entonces no entra en el stock de Margaret ni en los números de Henry.';
 }
 
 export async function registrarGasto(input: { concepto: string; monto: number; fecha?: string; categoria?: string }) {

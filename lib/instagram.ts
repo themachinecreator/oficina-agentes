@@ -142,3 +142,28 @@ export async function renovarToken() {
   if (!r.ok || !d.access_token) throw new Error(d?.error?.message || 'No se pudo renovar el token de Instagram.');
   await db().from('credenciales').upsert({ clave: 'instagram_token', valor: d.access_token, actualizado: new Date().toISOString() });
 }
+
+
+// Fotos y videos (las URL pasan por /api/foto, que solo sirve archivos de "Fotos relojes").
+export async function enviarMedia(destinatario: string, tipo: 'image' | 'video', url: string) {
+  if (esSendpulse(destinatario)) {
+    const formatos = [
+      { type: tipo, message: { attachment: { type: tipo, payload: { url } } } },
+      { type: tipo, message: { url } },
+      { type: 'file', message: { attachment: { type: tipo, payload: { url } } } },
+    ];
+    let ultimo: any;
+    for (const f of formatos) {
+      try { await enviarSendpulse(destinatario, [f]); return; } catch (e) { ultimo = e; }
+    }
+    throw ultimo;
+  }
+  if (esManychat(destinatario)) return enviarManychat(destinatario, [{ type: tipo, url }]);
+  const t = await token();
+  const r = await fetch(rutas(t).mensajes, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` },
+    body: JSON.stringify({ recipient: { id: destinatario }, message: { attachment: { type: tipo, payload: { url } } } }),
+  });
+  if (!r.ok) throw new Error(`Instagram rechazó el archivo: ${(await r.json().catch(() => ({})))?.error?.message || r.status}`);
+}

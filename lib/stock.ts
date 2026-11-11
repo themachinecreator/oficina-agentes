@@ -1,5 +1,6 @@
 import { db } from './db';
 import { exportarPlanillaCsv } from './google';
+import { carpetasRelojes, asignarCarpetas, CarpetaReloj } from './fotos';
 
 // Solo estas columnas pueden llegar a un cliente. Costos, gastos, ganancias, ahorro e inversión quedan afuera a propósito.
 const PUBLICAS: Record<string, string> = {
@@ -79,7 +80,6 @@ export async function stockDisponible(): Promise<Reloj[]> {
   const relojes: Reloj[] = [];
   if (valor('stock_sheet_id')) relojes.push(...leerPlanilla(await exportarPlanillaCsv(valor('stock_sheet_id')!), 'colección'));
   if (valor('stock_pagina_sheet_id')) relojes.push(...leerPlanilla(await exportarPlanillaCsv(valor('stock_pagina_sheet_id')!), 'página'));
-  if (!relojes.length) throw new Error('No pude leer ninguna planilla de stock.');
   // Notas manuales por referencia y precio (ej.: diferencias entre dos piezas iguales).
   try {
     for (const n of JSON.parse(valor('notas_stock') || '[]') as { referencia: string; precio: string; detalle: string }[]) {
@@ -87,9 +87,20 @@ export async function stockDisponible(): Promise<Reloj[]> {
       if (r) r['Detalle'] = r['Detalle'] ? `${r['Detalle']}. ${n.detalle}` : n.detalle;
     }
   } catch { /* notas mal formadas: se ignoran */ }
-  cache = { cuando: Date.now(), relojes };
-  return relojes;
+  // Margaret solo ofrece los relojes que tienen fotos o videos en "Fotos relojes".
+  const asignado = asignarCarpetas(relojes, await carpetasRelojes().catch(() => []));
+  const conFotos = relojes.filter((r) => asignado.has(r));
+  for (const r of conFotos) {
+    const c = asignado.get(r)!;
+    r['Fotos'] = `${c.fotos.length} foto(s)${c.videos.length ? ` y ${c.videos.length} video(s)` : ''}`;
+    carpetaDe.set(r, c);
+  }
+  cache = { cuando: Date.now(), relojes: conFotos };
+  return conFotos;
 }
+
+const carpetaDe = new WeakMap<Reloj, CarpetaReloj>();
+export const carpetaDelReloj = (r: Reloj) => carpetaDe.get(r);
 
 export function stockComoTexto(relojes: Reloj[]) {
   if (!relojes.length) return 'No hay relojes en stock en este momento.';

@@ -297,3 +297,18 @@ export function columnaLetra(i: number) {
   while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); }
   return s;
 }
+
+export async function listarDrive(q: string, campos = 'files(id,name,mimeType,parents,modifiedTime)') {
+  const p = new URLSearchParams({ q, pageSize: '200', fields: campos, orderBy: 'name' });
+  const d = await gapi(`https://www.googleapis.com/drive/v3/files?${p}`);
+  return (d.files || []) as any[];
+}
+
+export async function metadatosDrive(id: string) {
+  return gapi(`https://www.googleapis.com/drive/v3/files/${id}?fields=id,name,mimeType,parents,size`);
+}
+
+export async function descargarDrive(id: string) {
+  const token = await accessToken();
+  return fetch(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
+}
