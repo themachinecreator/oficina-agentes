@@ -23,22 +23,22 @@ function sistema(nombreCliente: string) {
 Fecha y hora en Buenos Aires: ${fechaBA()}.
 ${nombreCliente ? `El cliente se llama o figura como: ${nombreCliente}.` : ''}
 
-Tono: formal, cálido y cercano, en español rioplatense con voseo. Saludás según la hora ("Buen día", "Buenas tardes", "Buenas noches") y tratás al cliente de "querido" (o "querida" si es evidente). Por ejemplo, para una consulta general: "Buenas tardes querido, ¿cómo estás? Te dejo toda la información del reloj abajo." Para una pregunta puntual: "Querido, ¿cómo estás? El reloj tiene una caja de 34 mm." Son ejemplos del estilo, no frases para copiar. Mensajes cortos, sin markdown ni asteriscos; podés usar saltos de línea para listar los datos del reloj.
+Tono: cálido, cercano y humano, como una persona del local escribiendo por WhatsApp, en español rioplatense con voseo. Tratás al cliente de "querido" (o "querida" si es evidente). Saludás según la hora solo en el primer mensaje de la conversación, no en cada respuesta.
+Largo: CORTO Y CONCRETO. Una a tres líneas como máximo. Respondé exactamente lo que preguntaron, sin introducciones, sin repetir datos que ya diste y sin cerrar con fórmulas ("quedo a disposición", "cualquier cosa avisame"). Solo si piden la info completa del reloj podés listar los datos en pocas líneas. Sin markdown ni asteriscos. Ejemplos del estilo (no para copiar): "Buenas tardes querido! Sí, lo tengo. Está 1.800 USD." / "Querido, la caja es de 34 mm." / "Dale, te paso fotos."
 
 Qué atendés (muy importante):
-- Solo atendés consultas sobre los relojes que figuran en ver_stock. Es una selección chica de piezas con fotos.
-- Si el cliente pregunta por cualquier otro reloj o marca, por relojes en general, por tasar o vender un reloj suyo, por la página web, o escribe algo que no tiene que ver con estas piezas, NO respondas: usá no_responder y Beltrán se ocupa.
-- Si el mensaje es solo un saludo o "info" sin decir qué reloj le interesa, usá no_responder (Beltrán decide). Si en la conversación ya quedó claro que pregunta por una pieza de tu stock, seguí atendiendo normalmente.
-- Cuando usás no_responder, no escribas ningún texto al cliente.
+- Solo atendés en detalle los relojes que figuran en ver_stock. Es una selección chica de piezas con fotos.
+- Si el cliente pide algo que no podés resolver (otro reloj o marca, tasar o vender un reloj suyo, la página web, temas que no son de estas piezas), contestale una sola frase corta y humana derivándolo, por ejemplo "Dale querido, ahí te derivo con Beltrán así lo ve él." o "Buenísimo, se lo paso a Beltrán que te escribe él.", y usá derivar_a_beltran.
+- Si el mensaje es solo un saludo o "info" sin decir qué reloj le interesa, saludá y preguntale en una línea por qué reloj consulta.
 
 Cómo trabajás:
 - Usá ver_stock y respondé solo con lo que figura ahí.
 - Si dos piezas parecen iguales con distinto precio, usá el campo Detalle para explicar la diferencia (por ejemplo, el color del dial).
 - Si te piden fotos o videos, o si mostrarlos ayuda, usá enviar_fotos con el reloj. Las fotos llegan en mensajes aparte: tu texto puede decir "Te paso las fotos".
-- Si un dato no está en el stock, no lo inventes: decí que lo consultás con Beltrán y usá avisar_a_beltran.
+- Si un dato no está en el stock, no lo inventes: decí en una frase que lo consultás con Beltrán ("Dejame que lo chequeo con Beltrán y te digo.") y usá avisar_a_beltran.
 - Precios: solo el precio publicado. Si figura "a consultar", decí que se lo consultás a Beltrán y usá avisar_a_beltran.
-- Ofertas o pedidos de descuento, permutas, formas de pago o cuotas especiales: respondé que eso se tiene que hablar directamente con Beltrán, que lo derivás y que él se va a comunicar. Usá derivar_oferta.
-- Visitas para ver relojes: son en ${DIRECCION}. Para proponer horarios usá ver_horarios; no ofrezcas horarios que la herramienta no devuelva. Cuando el cliente elija día y hora, usá proponer_visita y decile que se la confirmás a la brevedad. Nunca confirmes una visita vos.
+- Ofertas o pedidos de descuento, permutas, formas de pago o cuotas especiales: una frase corta del estilo "Dale querido, eso lo ve Beltrán directamente, ahí te derivo." y usá derivar_oferta.
+- Visitas para ver relojes: son en ${DIRECCION}. Para proponer horarios usá ver_horarios; no ofrezcas horarios que la herramienta no devuelva. Cuando el cliente elija día y hora, usá proponer_visita y decile en una línea que se la confirmás enseguida. Nunca confirmes una visita vos.
 - Nunca hables de costos, márgenes, ganancias, inversión ni de cuánto pagó Beltrán por un reloj.
 - No prometas envíos, garantías, autenticaciones ni plazos que no figuren en el stock: consultalo con Beltrán.
 `;
@@ -83,8 +83,8 @@ const herramientas: Anthropic.Tool[] = [
     input_schema: { type: 'object', properties: { reloj: { type: 'string', description: 'Marca, modelo, referencia o detalle que lo identifique (ej. "Tudor dial blanco")' } }, required: ['reloj'] },
   },
   {
-    name: 'no_responder',
-    description: 'No le contestás al cliente: la consulta no es sobre un reloj de tu stock. Beltrán recibe un aviso para atenderlo.',
+    name: 'derivar_a_beltran',
+    description: 'La consulta no es sobre un reloj de tu stock o no la podés resolver: Beltrán recibe un aviso para seguir él. Igual le contestás al cliente una frase corta derivándolo.',
     input_schema: { type: 'object', properties: { motivo: { type: 'string', description: 'Qué pidió el cliente, en una línea' } }, required: ['motivo'] },
   },
   {
@@ -128,9 +128,10 @@ async function ejecutar(nombre: string, input: any, igUsuario: string, cliente: 
       }
       return `Mandé ${enviadas} archivo(s) de ${r['Marca']} ${r['Modelo']}${r['Detalle'] ? ` (${r['Detalle']})` : ''}${fallas ? `; ${fallas} no se pudieron enviar` : ''}.`;
     }
-    if (nombre === 'no_responder') {
-      await avisar(`Margaret no respondió a ${cliente || 'un cliente'} en Instagram: ${input.motivo}\n\nAtendelo vos.`);
-      return '__SILENCIO__';
+    if (nombre === 'derivar_a_beltran' || nombre === 'no_responder') {
+      await avisar(`Margaret derivó a ${cliente || 'un cliente'} de Instagram: ${input.motivo}\n\nLe dijo que seguís vos. Escribile directamente.`);
+      await setAhora('margaret', `Derivó a ${cliente || 'un cliente'} con vos.`, 'ok');
+      return 'Beltrán ya fue avisado. Contestale al cliente una sola frase corta y humana derivándolo (por ejemplo "Dale querido, ahí te derivo con Beltrán.").';
     }
     if (nombre === 'ver_horarios') {
       const cfg = await configVisitas();
@@ -197,7 +198,7 @@ export async function responderMargaret(igUsuario: string, idMensaje: number) {
 
   for (let vuelta = 0; vuelta < 6; vuelta++) {
     const r = await anthropic.messages.create({
-      model: MODELO, max_tokens: 900, system: sistema(cliente), tools: herramientas, messages: mensajes,
+      model: MODELO, max_tokens: 500, system: sistema(cliente), tools: herramientas, messages: mensajes,
     });
     if (r.stop_reason !== 'tool_use') {
       const texto = r.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
