@@ -174,6 +174,19 @@ export async function responderCorreo(c: { hilo: string; de: string; asunto: str
   });
 }
 
+// Mail nuevo (no respuesta), desde la casilla de Beltrán.
+export async function enviarCorreo(para: string, asunto: string, texto: string) {
+  const cabeceras = [
+    `To: ${para}`,
+    `Subject: ${encabezado(asunto)}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: base64',
+  ].join('\r\n');
+  const raw = `${cabeceras}\r\n\r\n${Buffer.from(texto).toString('base64')}`;
+  await gapi(`${GMAIL}/messages/send`, { method: 'POST', body: JSON.stringify({ raw: Buffer.from(raw).toString('base64url') }) });
+}
+
 export async function buscarCorreos(consulta: string, max = 6) {
   const lista = await gapi(`${GMAIL}/messages?maxResults=${max}&q=${encodeURIComponent(consulta)}`);
   const out = [];

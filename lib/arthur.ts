@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { db, setAhora, AgenteId } from './db';
 import { anthropic, MODELO, fechaBA, PERFIL_BELTRAN } from './claude';
+import { crearAprobacion } from './aprobaciones';
+import { enviarConBotones } from './telegram';
 import { registrarVenta, registrarCompra, registrarGasto, resumenFinanzas } from './henry';
 import { pedirGuion, pedirIdeas, revisarGuion, marcarGuion, listarGuiones } from './julian';
 import { googleConectado, eventos, crearEvento, superposiciones, buscarCorreos, buscarEnDrive, leerDocumento, horaBA } from './google';
@@ -29,6 +31,7 @@ ${conGoogle
     : '- Eleanor todavía no tiene acceso a Google: sus pedidos quedan como tareas en cola.'}
 ${conGoogle ? '- Henry está conectado: cuando Beltrán cuente una venta, una compra o un gasto, o pregunte cómo viene el negocio, usá registrar_venta, registrar_compra, registrar_gasto o resumen_finanzas en su nombre. Cualquier otro pedido para Henry (corregir o completar datos de la planilla como fechas, gráficos, análisis, ideas de mejora) pasáselo con encargar_a_henry, nunca con crear_tarea: él lo hace solo y le manda el informe a Beltrán por Telegram, así que no hace falta que vos avises cuando termina. Si hay tareas de Henry en cola, también se las podés pasar con encargar_a_henry indicando el número. Todo en USD. Si el resultado dice que hay varios relojes posibles, preguntale a Beltrán cuál antes de reintentar. Nunca inventes costos ni precios.' : ''}
 - Julian está conectado: cuando Beltrán pida un guion, ideas, cambios a un guion o el estado de los guiones, usá pedir_guion, pedir_ideas, revisar_guion, marcar_guion o ver_guiones. Julian le manda el guion directamente por Telegram: vos no lo repitas ni lo resumas, solo confirmá en una línea (por ejemplo "Te lo mandó Julian, es el #4"). Si Beltrán pide cambios sin decir el número, usá el último guion de la conversación.
+- Mails: Eleanor puede mandar mails nuevos desde la casilla de Beltrán. Si te pide escribirle a alguien, buscá la dirección con buscar_mails y usá redactar_mail; nunca digas que no se pueden enviar mails.
 - Victoria está conectada: cualquier pedido de marketing, crecimiento de la cuenta, estadísticas, anuncios o estrategia de contenido pasáselo con encargar_a_victoria. Ella trabaja sola, coordina con Julian y le manda el informe y las propuestas de anuncio a Beltrán por Telegram. Los lunes manda su informe semanal sola.
 - Theo está conectado: cuando Beltrán diga que subió las tomas de un guion (carpeta "Videos para editar/Guion N" en el Drive), usá editar_reel. Si no dijo si quiere música libre de derechos (Theo la pone y publica cuando Beltrán aprueba) o sin música (para que él ponga un audio de tendencia y publique), preguntale antes. Theo avisa por Telegram cuando el reel está listo. Si Beltrán deja un video ya terminado suelto en "Videos para editar" y pide la marca de agua, el logo, o tapar/sacar la marca de Kling (con recuadro blanco), usá marca_de_agua (recuadro: true para tapar la esquina). Nunca lo dejes como tarea en cola. Las historias del stock se publican solas cada dos días a las 18; si Beltrán pide subirlas ya, usá publicar_historias (una por cada reloj con fotos, y Theo avisa al terminar).
 
@@ -104,6 +107,19 @@ const herramientasGoogle: Anthropic.Tool[] = [
     name: 'buscar_mails',
     description: 'Busca mails en la casilla de Beltrán con la sintaxis de búsqueda de Gmail (por ejemplo "from:profesor@udesa.edu.ar newer_than:7d").',
     input_schema: { type: 'object', properties: { consulta: { type: 'string' } }, required: ['consulta'] },
+  },
+  {
+    name: 'redactar_mail',
+    description: 'Prepara un mail NUEVO desde la casilla de Beltrán (no una respuesta) y se lo manda a Beltrán por Telegram con botones Enviar / No enviar. No sale nada sin su OK. Si no sabés la dirección, buscala antes con buscar_mails.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        para: { type: 'string', description: 'Dirección de mail del destinatario' },
+        asunto: { type: 'string' },
+        cuerpo: { type: 'string', description: 'Texto completo del mail, en primera persona de Beltrán y firmado "Beltrán Symonds Dagnino", salvo que él pida que lo firme Eleanor.' },
+      },
+      required: ['para', 'asunto', 'cuerpo'],
+    },
   },
   {
     name: 'buscar_en_drive',
@@ -355,6 +371,14 @@ async function ejecutar(nombre: string, input: any): Promise<string> {
       const base = process.env.URL_OFICINA || 'https://oficina-agentes-351k.vercel.app';
       const r = await fetch(`${base}/api/cron/theo-historias?i=0&ya=1`, { method: 'POST', headers: { 'x-cron-secret': process.env.CRON_SECRET || '' } });
       return r.ok ? 'Theo está publicando las historias; avisa al terminar.' : `Theo no pudo arrancar (${r.status}).`;
+    }
+    if (nombre === 'redactar_mail') {
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(input.para || ''))) return 'Falta una dirección de mail válida: buscala con buscar_mails o pedísela a Beltrán.';
+      const texto = `Eleanor — mail listo para enviar\nPara: ${input.para}\nAsunto: ${input.asunto}\n\n${input.cuerpo}`;
+      const id = await crearAprobacion('eleanor', texto, 'mail_nuevo', { para: input.para, asunto: input.asunto, cuerpo: input.cuerpo });
+      const msg = await enviarConBotones(texto, [{ texto: 'Enviar', dato: `apr:${id}:si` }, { texto: 'No enviar', dato: `apr:${id}:no` }]);
+      if (msg) await db().from('aprobaciones').update({ telegram_msg_id: msg }).eq('id', id);
+      return 'Borrador enviado a Beltrán con botones para enviar. No repitas el texto del mail en tu respuesta: decile solo que lo tiene arriba para aprobar.';
     }
     if (nombre === 'marca_de_agua') {
       const base = process.env.URL_OFICINA || 'https://oficina-agentes-351k.vercel.app';

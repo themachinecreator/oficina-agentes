@@ -1,5 +1,5 @@
 import { db, setAhora } from './db';
-import { responderCorreo, crearEvento, horaBA } from './google';
+import { enviarCorreo, responderCorreo, crearEvento, horaBA } from './google';
 import { enviarDM } from './instagram';
 import { crearContenedor, esperarContenedor, publicarContenedor } from './publicar';
 import { editarMensaje } from './telegram';
@@ -32,6 +32,20 @@ export async function resolverAprobacion(id: number, aprobado: boolean): Promise
       }
     } else {
       resultado = `No respondí el mail de ${correo?.de || 'ese remitente'}.`;
+    }
+  }
+  if (ap.tipo === 'mail_nuevo') {
+    const { para, asunto, cuerpo } = ap.datos || {};
+    if (aprobado) {
+      try {
+        await enviarCorreo(para, asunto, cuerpo);
+        await setAhora('eleanor', `Mandó un mail a ${para}.`, 'ok');
+        resultado = `Mail enviado a ${para}.`;
+      } catch (e: any) {
+        return `No pude enviar el mail: ${e.message}`;
+      }
+    } else {
+      resultado = 'No mandé el mail.';
     }
   }
   if (ap.tipo === 'reel') {
