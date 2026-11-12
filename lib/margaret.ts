@@ -31,6 +31,10 @@ Qué atendés (muy importante):
 - Si el cliente pide algo que no podés resolver (otro reloj o marca, tasar o vender un reloj suyo, la página web, temas que no son de estas piezas), contestale una sola frase corta y humana derivándolo, por ejemplo "Dale querido, ahí te derivo con Beltrán así lo ve él." o "Buenísimo, se lo paso a Beltrán que te escribe él.", y usá derivar_a_beltran.
 - Si el mensaje es solo un saludo o "info" sin decir qué reloj le interesa, saludá y preguntale en una línea por qué reloj consulta.
 
+Fotos:
+- Podés ver las fotos que manda el cliente. Usalas: si es una captura o foto de un reloj de tu stock, reconocelo y respondé sobre ese; si es un reloj suyo para vender, tasar o permutar, derivá a Beltrán; si no se distingue bien, preguntá en una línea cuál es.
+- Nunca tases ni opines sobre autenticidad o estado de un reloj por foto.
+
 Cuándo NO contestar (como haría una persona):
 - No todo mensaje necesita respuesta. Si el cliente solo acusa recibo o cierra ("bueno", "dale", "ok", "joya", "gracias", "perfecto", un emoji o un sticker) y no hay ninguna pregunta pendiente, usá no_contestar y no escribas nada.
 - Nunca repitas una derivación ni mandes dos veces la misma idea con otras palabras.
@@ -142,7 +146,9 @@ async function ejecutar(nombre: string, input: any, igUsuario: string, cliente: 
     if (nombre === 'derivar_a_beltran' || nombre === 'no_responder') {
       // La conversación pasa a Beltrán: Margaret se corre 12 horas para no seguir respondiendo "bueno" con frases de más.
       await db().from('credenciales').upsert({ clave: `ig_pausa_${igUsuario}`, valor: String(Date.now() + 12 * 3600000), actualizado: new Date().toISOString() });
-      await avisar(`Margaret derivó a ${cliente || 'un cliente'} de Instagram: ${input.motivo}\n\nLe dijo que seguís vos. Escribile directamente.`);
+      const { data: ult } = await db().from('ig_mensajes').select('imagenes').eq('ig_usuario', igUsuario).eq('rol', 'user').not('imagenes', 'is', null).order('id', { ascending: false }).limit(3);
+      const fotos = (ult || []).flatMap((r: any) => r.imagenes || []).slice(0, 6);
+      await avisar(`Margaret derivó a ${cliente || 'un cliente'} de Instagram: ${input.motivo}${fotos.length ? `\n\nFotos que mandó:\n${fotos.join('\n')}` : ''}\n\nLe dijo que seguís vos. Escribile directamente.`);
       await setAhora('margaret', `Derivó a ${cliente || 'un cliente'} con vos.`, 'ok');
       return 'Beltrán ya fue avisado. Contestale al cliente una sola frase corta y humana derivándolo (por ejemplo "Dale querido, ahí te derivo con Beltrán.").';
     }
@@ -196,13 +202,19 @@ export async function responderMargaret(igUsuario: string, idMensaje: number) {
   const { data: pausa } = await base.from('credenciales').select('valor').eq('clave', `ig_pausa_${igUsuario}`).maybeSingle();
   if (pausa?.valor && Number(pausa.valor) > Date.now()) return;
 
-  const { data: previos } = await base.from('ig_mensajes').select('rol, texto').eq('ig_usuario', igUsuario)
+  const { data: previos } = await base.from('ig_mensajes').select('rol, texto, imagenes').eq('ig_usuario', igUsuario)
     .order('id', { ascending: false }).limit(16);
+  // Margaret ve las fotos que mandó el cliente (las más recientes, hasta 6) además del texto.
+  let cupo = 6;
+  const conFotos = new Set((previos ?? []).filter((m) => m.rol === 'user' && m.imagenes?.length).slice(0, 3));
   const mensajes: Anthropic.MessageParam[] = [];
   for (const m of (previos ?? []).reverse()) {
+    const bloques: any[] = [];
+    if (conFotos.has(m)) for (const url of m.imagenes as string[]) { if (cupo-- > 0) bloques.push({ type: 'image', source: { type: 'url', url } }); }
+    bloques.push({ type: 'text', text: m.texto });
     const ultimoM = mensajes[mensajes.length - 1];
-    if (ultimoM && ultimoM.role === m.rol) ultimoM.content = `${ultimoM.content}\n${m.texto}`;
-    else mensajes.push({ role: m.rol as 'user' | 'assistant', content: m.texto });
+    if (ultimoM && ultimoM.role === m.rol) (ultimoM.content as any[]).push(...bloques);
+    else mensajes.push({ role: m.rol as 'user' | 'assistant', content: bloques });
   }
   while (mensajes.length && mensajes[0].role !== 'user') mensajes.shift();
   if (!mensajes.length || mensajes[mensajes.length - 1].role !== 'user') return;

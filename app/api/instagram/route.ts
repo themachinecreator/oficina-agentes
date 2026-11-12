@@ -1,6 +1,6 @@
 import { after } from 'next/server';
 import { db } from '@/lib/db';
-import { firmaValida, manychatActivo } from '@/lib/instagram';
+import { firmaValida, manychatActivo, guardarImagenes, imagenesDe } from '@/lib/instagram';
 import { responderMargaret } from '@/lib/margaret';
 
 export const dynamic = 'force-dynamic';
@@ -44,7 +44,8 @@ export async function POST(req: Request) {
       if (!ev?.sender?.id || !ev?.recipient?.id) continue;
       const m = ev.message;
       if (!m || m.is_deleted) continue;
-      const texto = m.text || (m.attachments?.length ? `[El cliente mandó ${m.attachments.length === 1 ? 'un adjunto' : 'adjuntos'}: ${m.attachments.map((a: any) => a.type).join(', ')}]` : '');
+      const adjuntos = imagenesDe(m.attachments);
+      const texto = m.text || (adjuntos.length ? (adjuntos.length === 1 ? '[mandó una foto]' : `[mandó ${adjuntos.length} fotos]`) : (m.attachments?.length ? `[El cliente mandó ${m.attachments.length === 1 ? 'un adjunto' : 'adjuntos'}: ${m.attachments.map((a: any) => a.type).join(', ')}]` : ''));
       if (!texto) continue;
 
       if (m.is_echo) {
@@ -65,7 +66,7 @@ export async function POST(req: Request) {
 
       const cliente = String(ev.sender.id);
       const { data: fila, error } = await base.from('ig_mensajes')
-        .insert({ ig_usuario: cliente, rol: 'user', texto, mid: m.mid }).select('id').single();
+        .insert({ ig_usuario: cliente, rol: 'user', texto, mid: m.mid, imagenes: adjuntos.length ? await guardarImagenes(cliente, adjuntos) : null }).select('id').single();
       if (error || !fila) continue; // repetido
       after(() => responderMargaret(cliente, fila.id).catch((e) => console.error('Margaret', e)));
     }

@@ -167,3 +167,28 @@ export async function enviarMedia(destinatario: string, tipo: 'image' | 'video',
   });
   if (!r.ok) throw new Error(`Instagram rechazó el archivo: ${(await r.json().catch(() => ({})))?.error?.message || r.status}`);
 }
+
+// Las fotos que mandan los clientes vienen con links de Instagram que vencen en horas:
+// las guardamos en el almacenamiento propio para que Margaret (y Beltrán) las puedan ver después.
+export async function guardarImagenes(cliente: string, urls: string[]) {
+  const out: string[] = [];
+  for (const [i, u] of urls.slice(0, 6).entries()) {
+    try {
+      const r = await fetch(u);
+      const tipo = r.headers.get('content-type') || '';
+      if (!r.ok || !tipo.startsWith('image/')) continue;
+      const ext = tipo.includes('png') ? 'png' : tipo.includes('webp') ? 'webp' : tipo.includes('gif') ? 'gif' : 'jpg';
+      const nombre = `ig/${cliente.replace(/[^\w-]/g, '')}/${Date.now()}-${i}.${ext}`;
+      const { error } = await db().storage.from('publicaciones').upload(nombre, Buffer.from(await r.arrayBuffer()), { contentType: tipo, upsert: true });
+      if (!error) out.push(`${process.env.SUPABASE_URL}/storage/v1/object/public/publicaciones/${nombre}`);
+    } catch { /* si una falla, seguimos con las demás */ }
+  }
+  return out;
+}
+
+export function imagenesDe(adjuntos: any[] | null | undefined): string[] {
+  return (adjuntos || [])
+    .filter((a: any) => ['image', 'share', 'story_mention', 'ig_reel', 'reel'].includes(a?.type) || a?.payload?.story_media_url)
+    .map((a: any) => a?.payload?.url || a?.payload?.story_media_url)
+    .filter((u: any) => typeof u === 'string' && u.startsWith('http'));
+}

@@ -1,6 +1,7 @@
 import { after } from 'next/server';
 import { db } from '@/lib/db';
 import { responderMargaret } from '@/lib/margaret';
+import { guardarImagenes, imagenesDe } from '@/lib/instagram';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -26,7 +27,10 @@ export async function POST(req: Request) {
   for (const ev of eventos) {
     if (ev?.service && ev.service !== 'instagram') continue;
     const id = String(ev?.contact?.id || '').trim();
-    const texto = textoDe(ev, ev?.title === 'incoming_message');
+    const entrante = ev?.title === 'incoming_message';
+    const adjuntos = entrante ? imagenesDe(ev?.info?.message?.channel_data?.message?.attachments) : [];
+    let texto = textoDe(ev, entrante && !adjuntos.length);
+    if (!texto && adjuntos.length) texto = adjuntos.length === 1 ? '[mandó una foto]' : `[mandó ${adjuntos.length} fotos]`;
     if (!id || !texto) continue;
     const cliente = `sp_${id}`;
 
@@ -51,7 +55,8 @@ export async function POST(req: Request) {
       await base.from('credenciales').upsert({ clave: `nombre_${cliente}`, valor: usuario ? `${nombre || usuario} (@${usuario})` : nombre, actualizado: new Date().toISOString() });
     }
     const mid = ev.info?.message?.id ? `sp_${ev.info.message.id}` : null;
-    const { data: fila, error } = await base.from('ig_mensajes').insert({ ig_usuario: cliente, rol: 'user', texto, mid }).select('id').single();
+    const imagenes = adjuntos.length ? await guardarImagenes(cliente, adjuntos) : null;
+    const { data: fila, error } = await base.from('ig_mensajes').insert({ ig_usuario: cliente, rol: 'user', texto, mid, imagenes }).select('id').single();
     if (error || !fila) continue; // repetido
     after(() => responderMargaret(cliente, fila.id).catch((e) => console.error('Margaret (SendPulse)', e)));
   }
