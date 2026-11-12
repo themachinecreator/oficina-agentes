@@ -31,6 +31,11 @@ Qué atendés (muy importante):
 - Si el cliente pide algo que no podés resolver (otro reloj o marca, tasar o vender un reloj suyo, la página web, temas que no son de estas piezas), contestale una sola frase corta y humana derivándolo, por ejemplo "Dale querido, ahí te derivo con Beltrán así lo ve él." o "Buenísimo, se lo paso a Beltrán que te escribe él.", y usá derivar_a_beltran.
 - Si el mensaje es solo un saludo o "info" sin decir qué reloj le interesa, saludá y preguntale en una línea por qué reloj consulta.
 
+Cuándo NO contestar (como haría una persona):
+- No todo mensaje necesita respuesta. Si el cliente solo acusa recibo o cierra ("bueno", "dale", "ok", "joya", "gracias", "perfecto", un emoji o un sticker) y no hay ninguna pregunta pendiente, usá no_contestar y no escribas nada.
+- Nunca repitas una derivación ni mandes dos veces la misma idea con otras palabras.
+- Si el cliente manda fotos de un reloj suyo para vender o tasar, derivá una sola vez.
+
 Cómo trabajás:
 - Usá ver_stock y respondé solo con lo que figura ahí.
 - Si dos piezas parecen iguales con distinto precio, usá el campo Detalle para explicar la diferencia (por ejemplo, el color del dial).
@@ -88,6 +93,11 @@ const herramientas: Anthropic.Tool[] = [
     input_schema: { type: 'object', properties: { motivo: { type: 'string', description: 'Qué pidió el cliente, en una línea' } }, required: ['motivo'] },
   },
   {
+    name: 'no_contestar',
+    description: 'No mandás nada: el cliente solo acusó recibo o cerró la charla ("bueno", "gracias", un emoji) y no hay nada que responder.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
     name: 'avisar_a_beltran',
     description: 'Le avisa a Beltrán algo que necesita su respuesta (dato que falta, precio a consultar, consulta mayorista, etc.).',
     input_schema: { type: 'object', properties: { motivo: { type: 'string' } }, required: ['motivo'] },
@@ -128,7 +138,10 @@ async function ejecutar(nombre: string, input: any, igUsuario: string, cliente: 
       }
       return `Mandé ${enviadas} archivo(s) de ${r['Marca']} ${r['Modelo']}${r['Detalle'] ? ` (${r['Detalle']})` : ''}${fallas ? `; ${fallas} no se pudieron enviar` : ''}.`;
     }
+    if (nombre === 'no_contestar') return '__SILENCIO_TOTAL__';
     if (nombre === 'derivar_a_beltran' || nombre === 'no_responder') {
+      // La conversación pasa a Beltrán: Margaret se corre 12 horas para no seguir respondiendo "bueno" con frases de más.
+      await db().from('credenciales').upsert({ clave: `ig_pausa_${igUsuario}`, valor: String(Date.now() + 12 * 3600000), actualizado: new Date().toISOString() });
       await avisar(`Margaret derivó a ${cliente || 'un cliente'} de Instagram: ${input.motivo}\n\nLe dijo que seguís vos. Escribile directamente.`);
       await setAhora('margaret', `Derivó a ${cliente || 'un cliente'} con vos.`, 'ok');
       return 'Beltrán ya fue avisado. Contestale al cliente una sola frase corta y humana derivándolo (por ejemplo "Dale querido, ahí te derivo con Beltrán.").';
@@ -158,6 +171,7 @@ async function ejecutar(nombre: string, input: any, igUsuario: string, cliente: 
       const cuenta = input.reloj && isFinite(monto) ? await analizarOferta(input.reloj, monto).catch(() => null) : null;
       await avisar(`Margaret: oferta para vos\n\n${cliente || 'Un cliente'}${input.reloj ? ` por ${input.reloj}` : ''}: ${input.detalle}${cuenta ? `\n\n${cuenta}` : ''}\n\nRespondele directamente por Instagram.`);
       await setAhora('margaret', `Derivó una oferta${input.reloj ? ` por ${input.reloj}` : ''}.`, 'ok');
+      await db().from('credenciales').upsert({ clave: `ig_pausa_${igUsuario}`, valor: String(Date.now() + 12 * 3600000), actualizado: new Date().toISOString() });
       return 'Beltrán ya fue avisado.';
     }
     if (nombre === 'avisar_a_beltran') {
@@ -215,6 +229,7 @@ export async function responderMargaret(igUsuario: string, idMensaje: number) {
     for (const b of r.content) {
       if (b.type !== 'tool_use') continue;
       const res = await ejecutar(b.name, b.input, igUsuario, cliente);
+      if (res === '__SILENCIO_TOTAL__') { await setAhora('margaret', `Dejó la charla con ${cliente || 'un cliente'} ahí, no hacía falta responder.`, 'ok'); return; }
       if (res === '__SILENCIO__') silencio = true;
       resultados.push({ type: 'tool_result', tool_use_id: b.id, content: res === '__SILENCIO__' ? 'Listo, Beltrán fue avisado.' : res });
     }
