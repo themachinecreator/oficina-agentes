@@ -1,6 +1,6 @@
 import { after } from 'next/server';
 import { db } from '@/lib/db';
-import { enviar, escribiendo, telegram } from '@/lib/telegram';
+import { avisar, enviar, escribiendo, telegram } from '@/lib/telegram';
 import { resolverAprobacion } from '@/lib/aprobaciones';
 import { responderArthur } from '@/lib/arthur';
 
@@ -26,7 +26,10 @@ export async function POST(req: Request) {
     }
     // Respondemos el botón al instante; publicar un reel puede tardar un par de minutos.
     await telegram('answerCallbackQuery', { callback_query_id: cq.id, text: 'Recibido, ya lo hago.' }).catch(() => {});
-    if (m) after(async () => { await resolverAprobacion(Number(m[1]), m[2] === 'si').catch((e) => console.error(e)); });
+    if (m) after(async () => {
+      const r = await resolverAprobacion(Number(m[1]), m[2] === 'si').catch((e: any) => `No pude completarlo: ${e.message}`);
+      if (/^No (pude|encontré)|^Esto ya estaba/.test(r)) await avisar(r);
+    });
     return ok();
   }
 
