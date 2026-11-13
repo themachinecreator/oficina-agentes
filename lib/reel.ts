@@ -64,7 +64,7 @@ export async function tramoConVoz(archivo: string, dur: number) {
   return { desde, hasta: Math.max(hasta, desde + 0.5) };
 }
 
-async function carpetaTomas(guionId: number) {
+export async function carpetaTomas(guionId: number) {
   const base = await carpetaRaiz();
   const raiz = (await listarDrive(`${base ? `'${base}' in parents and ` : ''}mimeType = 'application/vnd.google-apps.folder' and trashed = false`))
     .filter((f: any) => /videos?\s+para\s+editar/i.test(f.name));

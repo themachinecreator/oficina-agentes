@@ -80,15 +80,31 @@ async function generar(pedido: string, maxTokens = 2500) {
 
 const tituloDe = (texto: string) => (texto.match(/T[IÍ]TULO:\s*(.+)/i)?.[1] || texto.split('\n')[0]).trim().slice(0, 120);
 
+// Formato "historia": video de 45 s a 2 min estilo creadores de relojería (persona a cámara + voz en off sobre imágenes).
+const FORMATO_HISTORIA = `Es un video de HISTORIA de un reloj, de 45 a 90 segundos, con este estilo: gancho muy fuerte en la primera frase ("Este reloj salvó la vida de tres astronautas"), relato con datos concretos y ritmo rápido, partes con Beltrán a cámara y partes en voz en off sobre imágenes que cambian cada 2 a 4 segundos (fotos y videos de archivo, publicidades de época, primeros planos del reloj).
+Beltrán graba TODO el texto de corrido a cámara en una sola toma; en los tramos VOZ EN OFF el editor tapa su imagen con los apoyos y su voz sigue sonando. Escribí exactamente en este formato (Theo lo lee automáticamente, respetá las etiquetas):
+TÍTULO: Guion historia: <reloj> (<duración> s)
+Después, los tramos en orden. Cada tramo empieza con una línea [A CÁMARA] o [VOZ EN OFF] y abajo, entre comillas, el texto exacto que dice Beltrán. El primero (gancho) y el último (cierre) van [A CÁMARA]; alterná para que no haya más de 15 segundos seguidos de cara.
+Debajo de cada tramo [VOZ EN OFF] poné de 1 a 3 apoyos, uno por línea, numerados en orden en todo el guion:
+APOYO B1: qué se ve | DRIVE: <marca y modelo del reloj en stock>
+APOYO B2: qué se ve | ARCHIVO: qué buscar en Google Imágenes o Wikimedia (en inglés, concreto: "Apollo 13 mission control 1970 photo")
+APOYO B3: qué se ve | IA: prompt en inglés para generar la escena con Kling (cinematográfico, de época, sin texto ni logos inventados)
+Usá DRIVE solo para relojes que figuran en stock (Theo toma solo las fotos y videos del Drive). Preferí ARCHIVO para hechos y personas reales; IA solo para escenas de ambiente o época sin personas reconocibles.
+Al final, en este orden:
+TEXTO DE LA PUBLICACIÓN: dos líneas, puede llevar un emoji.
+HASHTAGS: de 5 a 8, siempre #beltranrelojes.
+QUÉ CONSEGUIR: lista de los apoyos ARCHIVO e IA que Beltrán tiene que subir a la carpeta del guion con el nombre exacto (B2.jpg, B3.mp4...). Los DRIVE los busca Theo solo.
+QUÉ GRABAR: grabar todo el texto de corrido mirando a cámara, en 1080p a 30 cuadros (no 4K), con luz de frente y el reloj en la muñeca o en la mano.`;
+
 export async function pedirGuion(input: { tema?: string; formato?: string; notas?: string }, chatId?: number | string) {
   await setAhora('julian', input.tema ? `Escribiendo un guion: ${input.tema}.` : 'Pensando el próximo guion.', 'ok');
   const pedido = [
     input.tema ? `Tema: ${input.tema}.` : 'Elegí vos el tema: algo que encaje con lo que funciona en la cuenta o un formato nuevo que valga la pena probar.',
     input.formato ? `Formato pedido: ${input.formato}.` : '',
     input.notas ? `Indicaciones de Beltrán: ${input.notas}.` : '',
-    FORMATO_GUION,
+    /histori/i.test(`${input.formato || ''} ${input.tema || ''}`) ? FORMATO_HISTORIA : FORMATO_GUION,
   ].filter(Boolean).join('\n');
-  const guion = await generar(pedido);
+  const guion = await generar(pedido, /histori/i.test(`${input.formato || ''} ${input.tema || ''}`) ? 3500 : 2500);
   const { data } = await db().from('guiones').insert({ titulo: tituloDe(guion), formato: input.formato || null, contenido: guion }).select('id').single();
   if (chatId) await enviar(chatId, `Julian — guion #${data?.id}\n\n${guion}`);
   await setAhora('julian', `Entregó el guion #${data?.id}: ${tituloDe(guion)}.`, 'ok');
