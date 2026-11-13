@@ -147,8 +147,9 @@ export async function trabajarVictoria(pedido: string) {
   await setAhora('victoria', `Trabajando: ${pedido.slice(0, 80)}`, 'ok');
   const mensajes: Anthropic.MessageParam[] = [{ role: 'user', content: pedido }];
   try {
+    const sistemaFijo = SISTEMA();
     for (let vuelta = 0; vuelta < 16; vuelta++) {
-      const r = await anthropic.messages.create({ model: MODELO, max_tokens: 2500, system: SISTEMA(), tools: herramientas, messages: mensajes });
+      const r = await anthropic.messages.create({ model: MODELO, max_tokens: 2500, system: sistemaFijo, tools: herramientas, messages: mensajes });
       if (r.stop_reason !== 'tool_use') {
         const informe = r.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim().replace(/\*\*|^#+\s*/gm, '') || 'Listo.';
         const texto = `Victoria — ${informe}`;

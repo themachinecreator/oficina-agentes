@@ -450,11 +450,13 @@ export async function responderArthur(chatId: number, texto: string): Promise<st
   chatActual = chatId;
   const herramientas = conGoogle ? [...herramientasBase, ...herramientasGoogle, ...herramientasHenry, ...herramientasJulian, ...herramientasTheo] : [...herramientasBase, ...herramientasJulian];
 
+  // El sistema se arma una sola vez por conversación: si cambia entre vueltas (por la hora), Claude rechaza los bloques de razonamiento.
+  const sistemaFijo = sistema(conGoogle);
   for (let vuelta = 0; vuelta < 8; vuelta++) {
     const respuesta = await anthropic.messages.create({
       model: MODELO,
       max_tokens: 1200,
-      system: sistema(conGoogle),
+      system: sistemaFijo,
       tools: herramientas,
       messages: mensajes,
     });

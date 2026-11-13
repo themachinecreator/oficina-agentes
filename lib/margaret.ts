@@ -222,9 +222,10 @@ export async function responderMargaret(igUsuario: string, idMensaje: number) {
   const cliente = await nombreDe(igUsuario);
   await setAhora('margaret', `Respondiendo a ${cliente || 'un cliente'} por Instagram.`, 'ok');
 
+  const sistemaFijo = sistema(cliente);
   for (let vuelta = 0; vuelta < 6; vuelta++) {
     const r = await anthropic.messages.create({
-      model: MODELO, max_tokens: 500, system: sistema(cliente), tools: herramientas, messages: mensajes,
+      model: MODELO, max_tokens: 500, system: sistemaFijo, tools: herramientas, messages: mensajes,
     });
     if (r.stop_reason !== 'tool_use') {
       const texto = r.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();

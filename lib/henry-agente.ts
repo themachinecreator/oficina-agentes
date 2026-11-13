@@ -153,8 +153,9 @@ export async function trabajarHenry(pedido: string, tareaId?: number) {
   if (tareaId) await db().from('tareas').update({ estado: 'en_curso', actualizada: new Date().toISOString() }).eq('id', tareaId);
   const mensajes: Anthropic.MessageParam[] = [{ role: 'user', content: `Pedido de Beltrán (te lo pasa Arthur): ${pedido}` }];
   try {
+    const sistemaFijo = SISTEMA();
     for (let vuelta = 0; vuelta < 14; vuelta++) {
-      const r = await anthropic.messages.create({ model: MODELO_HENRY, max_tokens: 2500, system: SISTEMA(), tools: herramientas, messages: mensajes });
+      const r = await anthropic.messages.create({ model: MODELO_HENRY, max_tokens: 2500, system: sistemaFijo, tools: herramientas, messages: mensajes });
       if (r.stop_reason !== 'tool_use') {
         const informe = r.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim() || 'Listo.';
         const texto = `Henry — ${informe.replace(/\*\*|^#+\s*/gm, '')}`;
