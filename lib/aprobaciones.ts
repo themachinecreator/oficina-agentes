@@ -4,6 +4,7 @@ import { enviarDM } from './instagram';
 import { crearContenedor, esperarContenedor, publicarContenedor } from './publicar';
 import { editarMensaje } from './telegram';
 import { lanzarCampana } from './marketing';
+import { publicarEnLinkedin } from './linkedin';
 
 export async function crearAprobacion(agente: string, texto: string, tipo = 'general', datos: unknown = null) {
   const { data, error } = await db().from('aprobaciones')
@@ -32,6 +33,25 @@ export async function resolverAprobacion(id: number, aprobado: boolean): Promise
       }
     } else {
       resultado = `No respondí el mail de ${correo?.de || 'ese remitente'}.`;
+    }
+  }
+  if (ap.tipo === 'linkedin') {
+    const { postId } = ap.datos || {};
+    const { data: p } = await base.from('linkedin_posts').select('contenido').eq('id', postId).maybeSingle();
+    if (aprobado) {
+      try {
+        const lid = await publicarEnLinkedin(p?.contenido || '');
+        await base.from('linkedin_posts').update({ estado: 'publicado', linkedin_id: lid, publicado: new Date().toISOString() }).eq('id', postId);
+        await setAhora('oliver', `Publicó en LinkedIn (#${postId}).`, 'ok');
+        resultado = 'Publicado en tu LinkedIn.';
+      } catch (e: any) {
+        await base.from('linkedin_posts').update({ estado: 'error', error: e.message }).eq('id', postId);
+        return `No pude publicar en LinkedIn: ${e.message}`;
+      }
+    } else {
+      await base.from('linkedin_posts').update({ estado: 'descartado' }).eq('id', postId);
+      await setAhora('oliver', 'Descartaste la publicación; la próxima semana propone otra.', 'ok');
+      resultado = 'Publicación descartada.';
     }
   }
   if (ap.tipo === 'mail_nuevo') {

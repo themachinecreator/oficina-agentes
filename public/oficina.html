@@ -231,7 +231,15 @@ const AGENTS = {
     puede:'Mide la cuenta de Instagram, le marca la dirección a Julian y Theo para crecer y propone anuncios para vender y sumar seguidores.',
     limite:'Hasta 30 USD por mes en anuncios y cada campaña con tu aprobación.',
     look:{suit:0x1d2a3d, shirt:0xf3efe6, hair:0xc79a55, skin:0xf0cdb0, longHair:true, pants:0x141d2b},
-    seat:{x:8.5, z:5.8, r:PI} }
+    seat:{x:8.5, z:5.8, r:PI} },
+  oliver: { name:'Oliver Pemberton', cargo:'LinkedIn', estado:'idle',
+    ahora:'Esperando la conexión con LinkedIn.',
+    perso:'Pluma fina y criterio. Escribe como hablás vos.',
+    hoy:[],
+    puede:'Escribe una publicación por semana para tu LinkedIn personal: emprendimiento, relojes, tecnología, facultad y política.',
+    limite:'Nada se publica sin tu aprobación por Telegram.',
+    look:{suit:0x2b2b2b, shirt:0xeef1f4, hair:0x2a1d14, skin:0xe3bfa0, pants:0x1b1b1b},
+    seat:{x:-1.4, z:6.7, r:PI} }
 };
 const ESTADO_TXT = { ok:'Trabajando', wait:'Espera tu aprobación', idle:'Libre' };
 
@@ -890,6 +898,8 @@ plant(11.2, 7.2, 1.1);
 
 // Contaduría (Henry)
 desk(AGENTS.henry.seat, 1.7);
+desk(AGENTS.oliver.seat, 1.7, { laptop:true }); // Oliver, LinkedIn
+chair(AGENTS.oliver.seat, MAT.leather);
 chair(AGENTS.henry.seat, MAT.leather);
 box(.34, .07, .26, mat(0x2a3f2f), 1.25, .82, 5.75);          // libro mayor
 box(.3, .012, .22, MAT.paper, 1.25, .86, 5.75, null, false);

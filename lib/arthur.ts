@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { db, setAhora, AgenteId } from './db';
 import { anthropic, MODELO, fechaBA, PERFIL_BELTRAN } from './claude';
 import { crearAprobacion, resolverAprobacion } from './aprobaciones';
+import { revisarPost } from './oliver';
 import { enviarConBotones } from './telegram';
 import { registrarVenta, registrarCompra, registrarGasto, resumenFinanzas } from './henry';
 import { pedirGuion, pedirIdeas, revisarGuion, marcarGuion, listarGuiones } from './julian';
@@ -13,6 +14,7 @@ const EQUIPO = `
 - julian (Julian Hart), creador de contenido: ideas y guiones de videos cortos informativos, textos e historias.
 - theo (Theo Lang), editor de video: edita lo que graba Beltrán, se lo muestra antes de publicar, sube historias de stock cada dos días.
 - victoria (Victoria Ashford), marketing: mide la cuenta de Instagram, le marca la dirección a Julian y Theo para crecer y maneja los anuncios (hasta 30 USD por mes, cada campaña con aprobación de Beltrán).
+- oliver (Oliver Pemberton), LinkedIn: escribe las publicaciones del perfil personal de Beltrán (una por semana, los martes) y cada una sale solo con su aprobación. Para pedirle una, usá pedir_post_linkedin; para cambiar un borrador, revisar_post_linkedin.
 - henry (Henry Caldwell), contador interno: registra compras, ventas y gastos en dólares en la planilla Watches y arma los resúmenes. No hace temas impositivos.`;
 
 function sistema(conGoogle: boolean) {
@@ -44,7 +46,7 @@ Reglas:
 - Confirmá en una línea cada cosa que hacés.`;
 }
 
-const AGENTES_COLA = ['eleanor', 'margaret', 'julian', 'theo', 'henry', 'victoria'];
+const AGENTES_COLA = ['eleanor', 'margaret', 'julian', 'theo', 'henry', 'victoria', 'oliver'];
 
 const herramientasBase: Anthropic.Tool[] = [
   {
@@ -241,6 +243,16 @@ const herramientasJulian: Anthropic.Tool[] = [
 
 const herramientasTheo: Anthropic.Tool[] = [
   {
+    name: 'pedir_post_linkedin',
+    description: 'Oliver escribe una publicación para el LinkedIn personal de Beltrán (tema opcional) y se la manda por Telegram con botones Publicar / No publicar.',
+    input_schema: { type: 'object', properties: { tema: { type: 'string' }, notas: { type: 'string' } } },
+  },
+  {
+    name: 'revisar_post_linkedin',
+    description: 'Oliver reescribe el último borrador de LinkedIn (o el número indicado) con los cambios que pide Beltrán y lo vuelve a mandar para aprobar.',
+    input_schema: { type: 'object', properties: { cambios: { type: 'string' }, id: { type: 'number' } }, required: ['cambios'] },
+  },
+  {
     name: 'editar_historia',
     description: 'Theo edita un video de HISTORIA (guion de Julian con tramos [A CÁMARA] / [VOZ EN OFF] y apoyos B1, B2…): transcribe la toma de Beltrán, corta silencios, pone los apoyos sobre la voz en off, subtítulos palabra por palabra y logo, y lo manda para aprobar. La toma y los apoyos van en "Videos para editar/Guion N".',
     input_schema: {
@@ -413,6 +425,12 @@ async function ejecutar(nombre: string, input: any): Promise<string> {
       if (msg) await db().from('aprobaciones').update({ telegram_msg_id: msg }).eq('id', id);
       return 'Borrador enviado a Beltrán con botones para enviar. No repitas el texto del mail en tu respuesta: decile solo que lo tiene arriba para aprobar.';
     }
+    if (nombre === 'pedir_post_linkedin') {
+      const base = process.env.URL_OFICINA || 'https://oficina-agentes-351k.vercel.app';
+      const r = await fetch(`${base}/api/cron/oliver`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cron-secret': process.env.CRON_SECRET || '' }, body: JSON.stringify({ tema: input.tema, notas: input.notas }) });
+      return r.ok ? 'Oliver está escribiendo la publicación; te la manda por Telegram para aprobar.' : `Oliver no pudo arrancar (${r.status}).`;
+    }
+    if (nombre === 'revisar_post_linkedin') return await revisarPost({ id: input.id, cambios: input.cambios });
     if (nombre === 'editar_historia') {
       const base = process.env.URL_OFICINA || 'https://oficina-agentes-351k.vercel.app';
       const r = await fetch(`${base}/api/cron/theo-editar`, {
