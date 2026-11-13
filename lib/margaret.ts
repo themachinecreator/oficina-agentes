@@ -202,6 +202,24 @@ export async function responderMargaret(igUsuario: string, idMensaje: number) {
   const { data: pausa } = await base.from('credenciales').select('valor').eq('clave', `ig_pausa_${igUsuario}`).maybeSingle();
   if (pausa?.valor && Number(pausa.valor) > Date.now()) return;
 
+  // Tope para cuidar los créditos: Margaret contesta solo los primeros 2 mensajes de cada cliente (en 7 días).
+  // Al tercero deriva con una frase fija (sin usar la IA), te avisa con lo que pidió y se corre de la charla 7 días.
+  const LIMITE = Number(process.env.MARGARET_LIMITE || 2);
+  const { count: respondidos } = await base.from('ig_mensajes').select('id', { count: 'exact', head: true })
+    .eq('ig_usuario', igUsuario).eq('rol', 'assistant').gte('creado', new Date(Date.now() - 7 * 86400000).toISOString());
+  if ((respondidos || 0) >= LIMITE) {
+    const cliente = await nombreDe(igUsuario);
+    const frase = 'Dale querido, ahí te paso con Beltrán que te sigue él.';
+    await enviarDM(igUsuario, frase).catch(() => {});
+    await base.from('ig_mensajes').insert({ ig_usuario: igUsuario, rol: 'assistant', texto: frase });
+    await base.from('credenciales').upsert({ clave: `ig_pausa_${igUsuario}`, valor: String(Date.now() + 7 * 86400000), actualizado: new Date().toISOString() });
+    const { data: ult } = await base.from('ig_mensajes').select('texto, imagenes').eq('ig_usuario', igUsuario).eq('rol', 'user').order('id', { ascending: false }).limit(4);
+    const pedidos = (ult || []).reverse().map((m: any) => `- ${m.texto}${m.imagenes?.length ? ` (fotos: ${m.imagenes.join(' ')})` : ''}`).join('\n');
+    await avisar(`Margaret derivó a ${cliente || 'un cliente'} de Instagram (ya le había contestado ${respondidos} mensajes). Últimos mensajes:\n${pedidos}\n\nSeguí vos la charla.`);
+    await setAhora('margaret', `Derivó a ${cliente || 'un cliente'} con vos.`, 'ok');
+    return;
+  }
+
   const { data: previos } = await base.from('ig_mensajes').select('rol, texto, imagenes').eq('ig_usuario', igUsuario)
     .order('id', { ascending: false }).limit(16);
   // Margaret ve las fotos que mandó el cliente (las más recientes, hasta 6) además del texto.
