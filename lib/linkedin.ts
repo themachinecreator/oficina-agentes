@@ -43,7 +43,21 @@ export async function estadoLinkedin() {
   return { conectado: dias > 0, dias };
 }
 
-export async function publicarEnLinkedin(texto: string) {
+// Sube una imagen a LinkedIn y devuelve su URN (urn:li:image:...).
+async function subirImagen(token: string, autor: string, datos: Buffer) {
+  const r = await fetch('https://api.linkedin.com/rest/images?action=initializeUpload', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'LinkedIn-Version': VERSION, 'X-Restli-Protocol-Version': '2.0.0' },
+    body: JSON.stringify({ initializeUploadRequest: { owner: autor } }),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d?.value?.uploadUrl) throw new Error(`LinkedIn (imagen): ${d?.message || r.status}`);
+  const up = await fetch(d.value.uploadUrl, { method: 'PUT', headers: { Authorization: `Bearer ${token}` }, body: new Uint8Array(datos) });
+  if (!up.ok) throw new Error(`LinkedIn (subida de imagen): ${up.status}`);
+  return d.value.image as string;
+}
+
+export async function publicarEnLinkedin(texto: string, imagenes: Buffer[] = []) {
   const [token, autor] = await Promise.all([cred('linkedin_token'), cred('linkedin_autor')]);
   const { conectado } = await estadoLinkedin();
   if (!token || !autor || !conectado) throw new Error('LinkedIn no está conectado (o venció la conexión): entrá a /api/linkedin/conectar.');
@@ -51,6 +65,10 @@ export async function publicarEnLinkedin(texto: string) {
   // Los hashtags van con su plantilla para que queden clickeables.
   const escapar = (t: string) => t.replace(/([\\|{}@\[\]()<>#*_~])/g, '\\$1');
   const commentary = texto.split(/(#[\p{L}\p{N}_]+)/u).map((parte) => /^#[\p{L}\p{N}_]+$/u.test(parte) ? `{hashtag|\\#|${parte.slice(1)}}` : escapar(parte)).join('');
+  const urns: string[] = [];
+  for (const img of imagenes.slice(0, 9)) urns.push(await subirImagen(token, autor, img));
+  const content = urns.length === 1 ? { media: { id: urns[0], altText: '' } }
+    : urns.length > 1 ? { multiImage: { images: urns.map((id) => ({ id, altText: '' })) } } : undefined;
   const r = await fetch('https://api.linkedin.com/rest/posts', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'LinkedIn-Version': VERSION, 'X-Restli-Protocol-Version': '2.0.0' },
@@ -58,6 +76,7 @@ export async function publicarEnLinkedin(texto: string) {
       author: autor, commentary, visibility: 'PUBLIC',
       distribution: { feedDistribution: 'MAIN_FEED', targetEntities: [], thirdPartyDistributionChannels: [] },
       lifecycleState: 'PUBLISHED', isReshareDisabledByAuthor: false,
+      ...(content ? { content } : {}),
     }),
   });
   if (!r.ok) {

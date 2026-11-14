@@ -5,6 +5,7 @@ import { crearContenedor, esperarContenedor, publicarContenedor } from './public
 import { editarMensaje } from './telegram';
 import { lanzarCampana } from './marketing';
 import { publicarEnLinkedin } from './linkedin';
+import { fotoJpg } from './oliver';
 
 export async function crearAprobacion(agente: string, texto: string, tipo = 'general', datos: unknown = null) {
   const { data, error } = await db().from('aprobaciones')
@@ -37,10 +38,12 @@ export async function resolverAprobacion(id: number, aprobado: boolean): Promise
   }
   if (ap.tipo === 'linkedin') {
     const { postId } = ap.datos || {};
-    const { data: p } = await base.from('linkedin_posts').select('contenido').eq('id', postId).maybeSingle();
+    const { data: p } = await base.from('linkedin_posts').select('contenido, imagenes').eq('id', postId).maybeSingle();
     if (aprobado) {
       try {
-        const lid = await publicarEnLinkedin(p?.contenido || '');
+        const fotos: Buffer[] = [];
+        for (const id of (p?.imagenes || []) as string[]) fotos.push(await fotoJpg(id, 2000));
+        const lid = await publicarEnLinkedin(p?.contenido || '', fotos);
         await base.from('linkedin_posts').update({ estado: 'publicado', linkedin_id: lid, publicado: new Date().toISOString() }).eq('id', postId);
         await setAhora('oliver', `Publicó en LinkedIn (#${postId}).`, 'ok');
         resultado = 'Publicado en tu LinkedIn.';

@@ -62,7 +62,7 @@ export async function miEmail() {
   return data?.valor || '';
 }
 
-async function accessToken() {
+export async function accessToken() {
   if (cache && cache.vence > Date.now() + 60_000) return cache.token;
   const { data } = await db().from('credenciales').select('valor').eq('clave', 'google_refresh_token').maybeSingle();
   if (!data?.valor) throw new Error('Google no está conectado. Abrí /api/google/conectar.');
@@ -319,6 +319,15 @@ export async function listarDrive(q: string, campos = 'files(id,name,mimeType,pa
 
 export async function metadatosDrive(id: string) {
   return gapi(`https://www.googleapis.com/drive/v3/files/${id}?fields=id,name,mimeType,parents,size`);
+}
+
+// JPEG generado por Drive para fotos que ffmpeg no abre (HEIC del iPhone).
+export async function jpegDeDrive(id: string, ancho = 2000) {
+  const m = await gapi(`https://www.googleapis.com/drive/v3/files/${id}?fields=thumbnailLink`);
+  if (!m?.thumbnailLink) throw new Error('Drive todavía no generó la vista previa de la foto.');
+  const r = await fetch(String(m.thumbnailLink).replace(/=s\d+$/, `=s${ancho}`), { headers: { Authorization: `Bearer ${await accessToken()}` } });
+  if (!r.ok) throw new Error(`No pude bajar la vista previa (${r.status}).`);
+  return Buffer.from(await r.arrayBuffer());
 }
 
 export async function descargarDrive(id: string) {
