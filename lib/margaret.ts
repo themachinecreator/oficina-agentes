@@ -48,6 +48,7 @@ Cuándo NO contestar (como haría una persona):
 
 Cómo trabajás:
 - Usá ver_stock y respondé solo con lo que figura ahí.
+- Nunca te contradigas: si en esta charla ya dijiste que un reloj está, no digas después que no está. Si una búsqueda no lo encuentra, buscá de nuevo sin filtro antes de responder.
 - Si dos piezas parecen iguales con distinto precio, usá el campo Detalle para explicar la diferencia (por ejemplo, el color del dial).
 - Si te piden fotos o videos, o si mostrarlos ayuda, usá enviar_fotos con el reloj. Las fotos llegan en mensajes aparte: tu texto puede decir "Te paso las fotos".
 - Si un dato no está en el stock, no lo inventes: decí en una frase que lo consultás con Beltrán ("Dejame que lo chequeo con Beltrán y te digo.") y usá avisar_a_beltran.
@@ -117,16 +118,27 @@ const herramientas: Anthropic.Tool[] = [
 async function ejecutar(nombre: string, input: any, igUsuario: string, cliente: string): Promise<string> {
   try {
     if (nombre === 'ver_stock') {
-      let lista = await stockDisponible();
+      const todo = await stockDisponible();
+      let lista = todo;
+      let aviso = '';
       if (input?.buscar) {
-        const q = String(input.buscar).toLowerCase();
-        lista = lista.filter((r) => [r['Marca'], r['Modelo'], r['Referencia']].join(' ').toLowerCase().includes(q));
+        // Por palabras y sin importar el orden ("tudor oyster prince" encuentra "Tudor Prince OysterDate").
+        const norm = (t: string) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        const palabras = norm(input.buscar).split(/[^a-z0-9]+/).filter((w) => w.length > 1);
+        const texto = (r: Record<string, string>) => norm(Object.values(r).join(' '));
+        const puntos = (r: Record<string, string>) => palabras.filter((w) => texto(r).includes(w)).length;
+        const maximo = Math.max(0, ...todo.map(puntos));
+        lista = maximo ? todo.filter((r) => puntos(r) === maximo) : [];
+        if (!lista.length) {
+          lista = todo;
+          aviso = `No encontré "${input.buscar}" por nombre. Este es TODO el stock: fijate vos si alguno es el que piden antes de decir que no está.\n`;
+        }
       }
       if (input?.precio_maximo) {
         const precio = (r: Record<string, string>) => parseFloat((r['Precio con descuento'] || r['Precio'] || r['Precio de lista'] || '').replace(/[^\d.]/g, ''));
         lista = lista.filter((r) => !isNaN(precio(r)) && precio(r) <= Number(input.precio_maximo));
       }
-      return stockComoTexto(lista);
+      return aviso + stockComoTexto(lista);
     }
     if (nombre === 'enviar_fotos') {
       const lista = await stockDisponible();
@@ -196,10 +208,10 @@ async function ejecutar(nombre: string, input: any, igUsuario: string, cliente: 
   return 'Herramienta desconocida.';
 }
 
-export async function responderMargaret(igUsuario: string, idMensaje: number) {
+export async function responderMargaret(igUsuario: string, idMensaje: number, op: { sinEspera?: boolean } = {}) {
   const base = db();
   // Si el cliente manda varios mensajes seguidos, esperamos y contestamos una sola vez.
-  await new Promise((r) => setTimeout(r, 6000));
+  if (!op.sinEspera) await new Promise((r) => setTimeout(r, 6000));
   const { data: ultimo } = await base.from('ig_mensajes').select('id').eq('ig_usuario', igUsuario).eq('rol', 'user')
     .order('id', { ascending: false }).limit(1).maybeSingle();
   if (ultimo && ultimo.id !== idMensaje) return;

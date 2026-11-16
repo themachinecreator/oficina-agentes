@@ -1,6 +1,4 @@
-import { after } from 'next/server';
 import { db } from '@/lib/db';
-import { responderMargaret } from '@/lib/margaret';
 import { guardarImagenes, imagenesDe } from '@/lib/instagram';
 import { contextoDelMensaje, type Contexto } from '@/lib/contexto-ig';
 
@@ -68,7 +66,7 @@ export async function POST(req: Request) {
     const imagenes = guardadas.length ? guardadas : null;
     const { data: fila, error } = await base.from('ig_mensajes').insert({ ig_usuario: cliente, rol: 'user', texto, mid, imagenes }).select('id').single();
     if (error || !fila) continue; // repetido
-    after(() => responderMargaret(cliente, fila.id).catch((e) => console.error('Margaret (SendPulse)', e)));
+    // Margaret no contesta acá: lo hace /api/cron/margaret después de unos minutos, si Beltrán no contestó a mano.
   }
   return new Response('ok');
 }

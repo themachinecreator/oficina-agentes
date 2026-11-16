@@ -192,3 +192,26 @@ export function imagenesDe(adjuntos: any[] | null | undefined): string[] {
     .map((a: any) => a?.payload?.url || a?.payload?.story_media_url)
     .filter((u: any) => typeof u === 'string' && u.startsWith('http'));
 }
+
+// ¿Beltrán le escribió a mano a este cliente (desde la app de Instagram)? SendPulse no avisa de esos mensajes,
+// así que miramos la conversación en Instagram: un mensaje de la cuenta que no mandó Margaret es de Beltrán.
+export async function beltranEscribio(cliente: string, desdeMs: number): Promise<boolean> {
+  const nombre = await credencial(`nombre_${cliente}`);
+  const usuario = /\(@([^)]+)\)/.exec(nombre || '')?.[1] || '';
+  if (!usuario) return false;
+  const t = await token();
+  const { base } = rutas(t);
+  const r = await fetch(`${base}/${IG_ID}/conversations?platform=instagram&limit=25&fields=participants,messages.limit(15){from,message,created_time}`, { headers: { Authorization: `Bearer ${t}` } });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`Instagram (conversaciones): ${d?.error?.message || r.status}`);
+  const conv = (d.data || []).find((c: any) => (c.participants?.data || []).some((p: any) => String(p.username || '').toLowerCase() === usuario.toLowerCase()));
+  if (!conv) return false;
+  const propios = (conv.messages?.data || []).filter((m: any) => m.from?.id === IG_ID && Date.parse(m.created_time) >= desdeMs);
+  if (!propios.length) return false;
+  const { data: deMargaret } = await db().from('ig_mensajes').select('texto').eq('ig_usuario', cliente).eq('rol', 'assistant')
+    .gte('creado', new Date(desdeMs - 3600000).toISOString());
+  const limpio = (x: string) => String(x || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  const textos = (deMargaret || []).map((m: any) => limpio(m.texto));
+  // Mensajes sin texto (fotos/videos que mandó Margaret) no cuentan como de Beltrán.
+  return propios.some((m: any) => m.message && !textos.some((x) => x && (limpio(m.message).startsWith(x.slice(0, 40)) || x.startsWith(limpio(m.message).slice(0, 40)))));
+}
