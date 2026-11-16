@@ -6,7 +6,7 @@ import { editarHistoria } from '@/lib/historia';
 import { editarVozEnOff } from '@/lib/vozenoff';
 import { avisar } from '@/lib/telegram';
 import { db } from '@/lib/db';
-import { carpetaEditados } from '@/lib/video';
+import { carpetaEditados, nombreParaDrive } from '@/lib/video';
 import { subirADrive } from '@/lib/google';
 
 export const dynamic = 'force-dynamic';
@@ -35,7 +35,7 @@ export async function POST(req: Request) {
         const r = await fetch(`${process.env.SUPABASE_URL}/storage/v1/object/public/publicaciones/${p.archivo}`);
         if (!r.ok) throw new Error(`no lo encontré (${r.status})`);
         const fecha = new Date(p.creado).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' }).replace(/\//g, '-');
-        const nombreArchivo = `${String(p.reloj || 'video').replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80)} (${fecha}).mp4`;
+        const nombreArchivo = `${nombreParaDrive(String(p.reloj || ''))} (${fecha}).mp4`;
         await subirADrive(carpeta, nombreArchivo, Buffer.from(await r.arrayBuffer()));
         hechos.push(`ok: ${nombreArchivo}`);
       } catch (e: any) { hechos.push(`error #${p.id}: ${e.message}`); }

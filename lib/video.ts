@@ -105,12 +105,18 @@ export async function carpetaEditados() {
   return r[0].id as string;
 }
 
+// "Guion descontracturado: TAG Heuer 2000 Professional — el reloj del club (40 s)" → "TAG Heuer 2000 Professional — el reloj del club"
+export function nombreParaDrive(titulo: string) {
+  return (titulo || 'video').replace(/^guion[^:]*:\s*/i, '').replace(/\s*\(\d+\s*s\)\s*$/i, '')
+    .replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'video';
+}
+
 export async function guardarEnDrive(archivo: string, titulo: string) {
   try {
     const carpeta = await carpetaEditados();
     if (!carpeta) return '(No encontré la carpeta "Videos editados" en el Drive: no lo guardé ahí.)';
     const fecha = new Date().toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' }).replace(/\//g, '-');
-    const limpio = (titulo || 'video').replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+    const limpio = nombreParaDrive(titulo);
     await subirADrive(carpeta, `${limpio} (${fecha}).mp4`, await fs.readFile(archivo));
     return 'Guardado en Drive › Videos editados.';
   } catch (e: any) {
