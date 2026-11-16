@@ -128,7 +128,7 @@ export async function pedirIdeas(input: { cantidad?: number; enfoque?: string },
     `Actuá como director creativo. Proponé ${n} ideas de videos para las próximas semanas${input.enfoque ? `, con este enfoque: ${input.enfoque}` : ''}. ` +
     'Mezclá lo que ya funciona con al menos dos formatos nuevos (series, desafíos, comparaciones, mitos, detrás de escena, preguntas del público). ' +
     'Para cada idea: título, formato, el gancho en una línea y por qué puede funcionar. Numeralas con "Idea 1", "Idea 2", etc. Al final, sugerí un orden de publicación para la semana.',
-    1800,
+    8000,
   );
   if (chatId) await enviar(chatId, `Julian — ideas\n\n${ideas}`);
   await setAhora('julian', `Propuso ${n} ideas de contenido.`, 'ok');
