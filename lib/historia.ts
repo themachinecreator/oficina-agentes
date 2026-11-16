@@ -4,7 +4,7 @@ import { db, setAhora } from './db';
 import { listarDrive } from './google';
 import {
   ffmpeg, ffmpegInfo, duracionYAudio, filtroHdr, carpetaTemporal, bajarDeDrive, cancionAlAzar, logo,
-  subirPublicacion, textoEnArchivo, FUENTE_FUERTE,
+  subirPublicacion, guardarEnDrive, textoEnArchivo, FUENTE_FUERTE,
 } from './video';
 import { enviarConBotones, avisar } from './telegram';
 import { crearAprobacion } from './aprobaciones';
@@ -247,11 +247,12 @@ export async function editarHistoria(guionId: number, op: { musica?: 'libre' | '
 
     const nombre = `reels/historia-${guionId}-${Date.now()}.mp4`;
     const url = await subirPublicacion(final, nombre);
+    const enDrive = await guardarEnDrive(final, g.titulo);
     await db().from('publicaciones').insert({ tipo: 'reel', reloj: g.titulo, archivo: nombre, estado: 'para aprobar' });
     await db().from('guiones').update({ estado: 'editado', actualizado: new Date().toISOString() }).eq('id', guionId);
     const texto = [
       `Theo — video de historia del guion #${guionId} listo (${Math.round(total)} s, cortó ${Math.round(dur - total)} s de silencios)`,
-      g.titulo, `Ver video: ${url}`,
+      g.titulo, `Ver video: ${url}`, enDrive,
       faltan.length ? `\nApoyos que no encontré (quedó tu imagen a cámara en esos tramos): ${faltan.join('; ')}. Si los subís a la carpeta con ese nombre, lo vuelvo a armar.` : '',
       `\nTexto que se publica:\n${caption || '(sin texto)'}`,
     ].filter(Boolean).join('\n');

@@ -3,7 +3,7 @@ import { db } from './db';
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/calendar',
-  'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/drive',
   'https://www.googleapis.com/auth/spreadsheets',
   'openid',
   'email',
@@ -333,4 +333,26 @@ export async function jpegDeDrive(id: string, ancho = 2000) {
 export async function descargarDrive(id: string) {
   const token = await accessToken();
   return fetch(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
+}
+
+// Sube un archivo a una carpeta de Drive (subida reanudable: sirve para videos pesados).
+export async function subirADrive(carpeta: string, nombre: string, datos: Buffer, tipo = 'video/mp4') {
+  const token = await accessToken();
+  const ini = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,webViewLink', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': tipo, 'X-Upload-Content-Length': String(datos.length) },
+    body: JSON.stringify({ name: nombre, parents: [carpeta] }),
+  });
+  if (!ini.ok) {
+    const d = await ini.json().catch(() => ({}));
+    const m = d?.error?.message || ini.status;
+    if (ini.status === 403) throw new Error(`Google no me deja escribir en Drive (${m}). Volvé a conectar Google en /api/google/conectar.`);
+    throw new Error(`Drive: ${m}`);
+  }
+  const destino = ini.headers.get('location');
+  if (!destino) throw new Error('Drive no devolvió dónde subir el archivo.');
+  const up = await fetch(destino, { method: 'PUT', headers: { 'Content-Type': tipo }, body: new Uint8Array(datos) });
+  const d = await up.json().catch(() => ({}));
+  if (!up.ok) throw new Error(`Drive (subida): ${d?.error?.message || up.status}`);
+  return d as { id: string; webViewLink?: string };
 }

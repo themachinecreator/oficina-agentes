@@ -5,7 +5,7 @@ import { listarDrive } from './google';
 import { carpetaRaiz } from './fotos';
 import {
   ffmpeg, ffmpegInfo, filtroHdr, duracionYAudio, carpetaTemporal, bajarDeDrive, cancionAlAzar, logo,
-  subirPublicacion, textoEnArchivo, FUENTE_FUERTE,
+  subirPublicacion, guardarEnDrive, textoEnArchivo, FUENTE_FUERTE,
 } from './video';
 import { enviarConBotones, avisar } from './telegram';
 import { crearAprobacion } from './aprobaciones';
@@ -143,10 +143,11 @@ export async function editarReel(guionId: number, op: OpcionesReel) {
     ]);
     const nombre = `reels/guion-${guionId}-${Date.now()}.mp4`;
     const url = await subirPublicacion(final, nombre);
+    const enDrive = await guardarEnDrive(final, g.titulo);
     await db().from('publicaciones').insert({ tipo: 'reel', reloj: g.titulo, archivo: nombre, estado: 'para aprobar' });
     await db().from('guiones').update({ estado: 'editado', actualizado: new Date().toISOString() }).eq('id', guionId);
 
-    const texto = `Theo — reel del guion #${guionId} listo (${Math.round(t)} s)\n${g.titulo}\n${op.musica === 'libre' ? `Música: ${tema.replace(/\.[^.]+$/, '')}` : 'Sin música: agregale un audio de tendencia en Instagram.'}\n\nVer video: ${url}\n\nTexto que se publica:\n${caption || '(sin texto)'}`;
+    const texto = `Theo — reel del guion #${guionId} listo (${Math.round(t)} s)\n${g.titulo}\n${op.musica === 'libre' ? `Música: ${tema.replace(/\.[^.]+$/, '')}` : 'Sin música: agregale un audio de tendencia en Instagram.'}\n\nVer video: ${url}\n${enDrive}\n\nTexto que se publica:\n${caption || '(sin texto)'}`;
     const id = await crearAprobacion('theo', texto, 'reel', { guionId, url, caption, musica: op.musica });
     const botones = op.musica === 'libre'
       ? [{ texto: 'Publicar', dato: `apr:${id}:si` }, { texto: 'No publicar', dato: `apr:${id}:no` }]
@@ -205,12 +206,13 @@ export async function marcaDeAgua(op: { nombre?: string; descripcion?: string; r
     ]);
     const nombre = `reels/marca-${Date.now()}.mp4`;
     const url = await subirPublicacion(final, nombre);
+    const enDrive = await guardarEnDrive(final, `${String(v.name).replace(/\.[^.]+$/, '')} con marca`);
     await db().from('publicaciones').insert({ tipo: 'reel', reloj: v.name, archivo: nombre, estado: 'para aprobar' });
     await setAhora('julian', 'Mirando el video de Theo para sugerir mejoras.', 'ok');
     const desc = `${op.descripcion || 'Video publicitario de un reloj'}. Dura ${Math.round(dur)} s, formato vertical para Reels, ${audio ? 'con audio propio' : 'sin audio'}, ${op.recuadro ? 'logo sobre un recuadro blanco abajo a la derecha' : 'logo chico abajo a la derecha'}.`;
     const ideas = await sugerirParaVideo(desc).catch((e: any) => `(Julian no pudo opinar: ${e.message})`);
     await setAhora('julian', 'Le pasó sus sugerencias a Theo.', 'ok');
-    const texto = `Theo — video listo con tu marca de agua (${Math.round(dur)} s, formato Reel)\nVer video: ${url}${ideas ? `\n\nJulian sugiere:\n${ideas}` : ''}`;
+    const texto = `Theo — video listo con tu marca de agua (${Math.round(dur)} s, formato Reel)\nVer video: ${url}\n${enDrive}${ideas ? `\n\nJulian sugiere:\n${ideas}` : ''}`;
     const id = await crearAprobacion('theo', texto, 'reel', { url, caption: '', musica: 'sin' });
     const msg = await enviarConBotones(texto, [{ texto: 'Lo publico yo', dato: `apr:${id}:no` }]);
     if (msg) await db().from('aprobaciones').update({ telegram_msg_id: msg }).eq('id', id);

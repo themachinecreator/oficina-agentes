@@ -4,7 +4,7 @@ import path from 'path';
 import os from 'os';
 import ffmpegPath from 'ffmpeg-static';
 import { db } from './db';
-import { descargarDrive, listarDrive } from './google';
+import { descargarDrive, listarDrive, subirADrive } from './google';
 import { carpetaRaiz } from './fotos';
 
 const FUENTES = path.join(process.cwd(), 'assets', 'fonts');
@@ -88,6 +88,34 @@ export async function subirPublicacion(archivo: string, nombre: string, tipo = '
   const { error } = await db().storage.from('publicaciones').upload(nombre, datos, { contentType: tipo, upsert: true });
   if (error) throw new Error(`No pude guardar el video: ${error.message}`);
   return `${process.env.SUPABASE_URL}/storage/v1/object/public/publicaciones/${nombre}`;
+}
+
+// Copia el video terminado a la carpeta "Videos editados" del Drive (busca primero dentro de Watches).
+// Nunca frena la edición: si falla, devuelve una línea para avisar en Telegram.
+export async function carpetaEditados() {
+  const { data } = await db().from('credenciales').select('valor').eq('clave', 'editados_carpeta_id').maybeSingle();
+  if (data?.valor) return data.valor as string;
+  const base = await carpetaRaiz();
+  const q = `mimeType = 'application/vnd.google-apps.folder' and trashed = false and name contains 'editados'`;
+  let r = base ? await listarDrive(`'${base}' in parents and ${q}`) : [];
+  if (!r.length) r = await listarDrive(q);
+  r = r.filter((f: any) => /videos?\s+editados?/i.test(f.name));
+  if (!r.length) return '';
+  await db().from('credenciales').upsert({ clave: 'editados_carpeta_id', valor: r[0].id, actualizado: new Date().toISOString() });
+  return r[0].id as string;
+}
+
+export async function guardarEnDrive(archivo: string, titulo: string) {
+  try {
+    const carpeta = await carpetaEditados();
+    if (!carpeta) return '(No encontré la carpeta "Videos editados" en el Drive: no lo guardé ahí.)';
+    const fecha = new Date().toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' }).replace(/\//g, '-');
+    const limpio = (titulo || 'video').replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+    await subirADrive(carpeta, `${limpio} (${fecha}).mp4`, await fs.readFile(archivo));
+    return 'Guardado en Drive › Videos editados.';
+  } catch (e: any) {
+    return `(No pude guardarlo en Videos editados: ${e.message})`;
+  }
 }
 
 // Escapa texto para el filtro drawtext usando archivos (evita problemas con comillas y dos puntos).

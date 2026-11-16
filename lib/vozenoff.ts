@@ -5,7 +5,7 @@ import { listarDrive } from './google';
 import { carpetaRaiz } from './fotos';
 import {
   ffmpeg, duracionYAudio, filtroHdr, carpetaTemporal, bajarDeDrive, cancionAlAzar, logo,
-  subirPublicacion, textoEnArchivo, FUENTE_FUERTE,
+  subirPublicacion, guardarEnDrive, textoEnArchivo, FUENTE_FUERTE,
 } from './video';
 import { enviarConBotones, avisar } from './telegram';
 import { crearAprobacion } from './aprobaciones';
@@ -126,11 +126,12 @@ export async function editarVozEnOff(op: { guionId?: number; musica?: 'libre' | 
 
     const nombre = `reels/vozenoff-${Date.now()}.mp4`;
     const url = await subirPublicacion(final, nombre);
+    const enDrive = await guardarEnDrive(final, titulo);
     await db().from('publicaciones').insert({ tipo: 'reel', reloj: titulo, archivo: nombre, estado: 'para aprobar' });
     if (op.guionId) await db().from('guiones').update({ estado: 'editado', actualizado: new Date().toISOString() }).eq('id', op.guionId);
     const texto = [
       `Theo — reel con voz en off listo (${Math.round(total)} s, ${audios.length} audios sobre ${clips.length} tomas, ${cortes.length} cortes)`,
-      titulo, `Ver video: ${url}`,
+      titulo, `Ver video: ${url}`, enDrive,
       palabras.length ? '' : '\n(No pude transcribir la voz: va sin subtítulos.)',
       caption ? `\nTexto que se publica:\n${caption}` : '',
     ].filter(Boolean).join('\n');
