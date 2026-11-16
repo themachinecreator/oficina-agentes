@@ -37,7 +37,7 @@ ${conGoogle ? '- Henry está conectado: cuando Beltrán cuente una venta, una co
 - Costos: cuando Beltrán pida fichas, especificaciones, precios o listas de relojes, usá ver_stock y pasá solo la ficha y el precio de lista, listo para reenviar a un cliente. NUNCA incluyas precio de compra, costo, gastos, ganancia, margen ni inversión, salvo que él pida explícitamente esos números (costos, ganancias, finanzas); en ese caso dejá claro que es información interna.
 - Mails: Eleanor puede mandar mails nuevos desde la casilla de Beltrán. Si te pide escribirle a alguien, buscá la dirección con buscar_mails y usá redactar_mail; nunca digas que no se pueden enviar mails. Si Beltrán dice "enviá", "mandalo" o "aprobado" sobre algo pendiente, usá resolver_pendiente (sin crear un borrador nuevo).
 - Victoria está conectada: cualquier pedido de marketing, crecimiento de la cuenta, estadísticas, anuncios o estrategia de contenido pasáselo con encargar_a_victoria. Ella trabaja sola, coordina con Julian y le manda el informe y las propuestas de anuncio a Beltrán por Telegram. Los lunes manda su informe semanal sola.
-- Theo está conectado: cuando Beltrán diga que subió las tomas de un guion (carpeta "Videos para editar/Guion N" en el Drive), usá editar_reel. Si no dijo si quiere música libre de derechos (Theo la pone y publica cuando Beltrán aprueba) o sin música (para que él ponga un audio de tendencia y publique), preguntale antes. Theo avisa por Telegram cuando el reel está listo. Videos de historia: si Beltrán pide un video de historia de un reloj, pedile el guion a Julian con pedir_guion y formato "historia"; cuando avise que subió la toma (y los apoyos) a "Guion N", usá editar_historia. Si Beltrán deja un video ya terminado suelto en "Videos para editar" y pide la marca de agua, el logo, o tapar/sacar la marca de Kling (con recuadro blanco), usá marca_de_agua (recuadro: true para tapar la esquina). Nunca lo dejes como tarea en cola. Las historias del stock se publican solas cada dos días a las 18; si Beltrán pide subirlas ya, usá publicar_historias (una por cada reloj con fotos, y Theo avisa al terminar).
+- Theo está conectado: cuando Beltrán diga que subió las tomas de un guion (carpeta "Videos para editar/Guion N" en el Drive), usá editar_reel. Si no dijo si quiere música libre de derechos (Theo la pone y publica cuando Beltrán aprueba) o sin música (para que él ponga un audio de tendencia y publique), preguntale antes. Theo avisa por Telegram cuando el reel está listo. Voz en off: si Beltrán subió audios en una carpeta "Voz" y tomas en una carpeta "Videos", usá editar_voz_en_off. Videos de historia: si Beltrán pide un video de historia de un reloj, pedile el guion a Julian con pedir_guion y formato "historia"; cuando avise que subió la toma (y los apoyos) a "Guion N", usá editar_historia. Si Beltrán deja un video ya terminado suelto en "Videos para editar" y pide la marca de agua, el logo, o tapar/sacar la marca de Kling (con recuadro blanco), usá marca_de_agua (recuadro: true para tapar la esquina). Nunca lo dejes como tarea en cola. Las historias del stock se publican solas cada dos días a las 18; si Beltrán pide subirlas ya, usá publicar_historias (una por cada reloj con fotos, y Theo avisa al terminar).
 
 Reglas:
 - Todos los agentes están conectados: hacé los pedidos con sus herramientas, no con crear_tarea. crear_tarea es solo para dejar anotado un pendiente que Beltrán quiere recordar y que ninguna herramienta resuelve.
@@ -260,6 +260,11 @@ const herramientasTheo: Anthropic.Tool[] = [
     input_schema: { type: 'object', properties: { cambios: { type: 'string' }, id: { type: 'number' } }, required: ['cambios'] },
   },
   {
+    name: 'editar_voz_en_off',
+    description: 'Theo arma un reel con la voz en off de Beltrán (audios por toma en la carpeta "Voz") sobre sus tomas de video (carpeta "Videos"), dentro de la carpeta de videos para editar (o de "Guion N"): cortes al ritmo, subtítulos, logo y música opcional.',
+    input_schema: { type: 'object', properties: { guion_id: { type: 'number', description: 'Guion al que corresponde (para el texto de la publicación), si se sabe.' }, musica: { type: 'string', enum: ['libre', 'sin'] } } },
+  },
+  {
     name: 'editar_historia',
     description: 'Theo edita un video de HISTORIA (guion de Julian con tramos [A CÁMARA] / [VOZ EN OFF] y apoyos B1, B2…): transcribe la toma de Beltrán, corta silencios, pone los apoyos sobre la voz en off, subtítulos palabra por palabra y logo, y lo manda para aprobar. La toma y los apoyos van en "Videos para editar/Guion N".',
     input_schema: {
@@ -445,6 +450,14 @@ async function ejecutar(nombre: string, input: any): Promise<string> {
       return r.ok ? 'Oliver está escribiendo la publicación; te la manda por Telegram para aprobar.' : `Oliver no pudo arrancar (${r.status}).`;
     }
     if (nombre === 'revisar_post_linkedin') return await revisarPost({ id: input.id, cambios: input.cambios });
+    if (nombre === 'editar_voz_en_off') {
+      const base = process.env.URL_OFICINA || 'https://oficina-agentes-351k.vercel.app';
+      const r = await fetch(`${base}/api/cron/theo-editar`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cron-secret': process.env.CRON_SECRET || '' },
+        body: JSON.stringify({ tipo: 'vozenoff', guionId: input.guion_id, musica: input.musica || 'sin' }),
+      });
+      return r.ok ? 'Theo está armando el reel con la voz en off; avisa por Telegram en unos minutos.' : `Theo no pudo arrancar (${r.status}).`;
+    }
     if (nombre === 'editar_historia') {
       const base = process.env.URL_OFICINA || 'https://oficina-agentes-351k.vercel.app';
       const r = await fetch(`${base}/api/cron/theo-editar`, {
