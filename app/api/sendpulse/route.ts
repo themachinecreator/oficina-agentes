@@ -2,6 +2,7 @@ import { after } from 'next/server';
 import { db } from '@/lib/db';
 import { responderMargaret } from '@/lib/margaret';
 import { guardarImagenes, imagenesDe } from '@/lib/instagram';
+import { contextoDelMensaje, type Contexto } from '@/lib/contexto-ig';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -28,11 +29,19 @@ export async function POST(req: Request) {
     if (ev?.service && ev.service !== 'instagram') continue;
     const id = String(ev?.contact?.id || '').trim();
     const entrante = ev?.title === 'incoming_message';
-    const adjuntos = entrante ? imagenesDe(ev?.info?.message?.channel_data?.message?.attachments) : [];
-    let texto = textoDe(ev, entrante && !adjuntos.length);
-    if (!texto && adjuntos.length) texto = adjuntos.length === 1 ? '[mandó una foto]' : `[mandó ${adjuntos.length} fotos]`;
-    if (!id || !texto) continue;
+    const msg = ev?.info?.message?.channel_data?.message;
+    const adjuntos = entrante ? imagenesDe(msg?.attachments) : [];
+    const hayAdjuntos = Array.isArray(msg?.attachments) && msg.attachments.length > 0;
+    // Con adjuntos (foto, audio, publicación) "last_message" es solo el link: no lo usamos como texto.
+    let texto = textoDe(ev, entrante && !hayAdjuntos);
+    if (/^https:\/\/lookaside\.fbsbx\.com\//.test(texto)) texto = '';
     const cliente = `sp_${id}`;
+    // Historia respondida, anuncio de origen, publicación compartida o audio: Margaret tiene que saber de qué reloj hablan.
+    const ctx: Contexto = entrante && id ? await contextoDelMensaje(cliente, msg).catch(() => ({ prefijo: '', imagenes: [], textoAudio: '' })) : { prefijo: '', imagenes: [], textoAudio: '' };
+    if (ctx.textoAudio) texto = ctx.textoAudio;
+    if (!texto && adjuntos.length) texto = adjuntos.length === 1 ? '[mandó una foto]' : `[mandó ${adjuntos.length} fotos]`;
+    if (ctx.prefijo) texto = texto ? `${ctx.prefijo} ${texto}` : ctx.prefijo;
+    if (!id || !texto) continue;
 
     if (ev.title === 'outgoing_message') {
       // Si el mensaje saliente no lo mandó Margaret, lo escribió Beltrán desde SendPulse: pausamos a Margaret 12 h.
@@ -55,7 +64,8 @@ export async function POST(req: Request) {
       await base.from('credenciales').upsert({ clave: `nombre_${cliente}`, valor: usuario ? `${nombre || usuario} (@${usuario})` : nombre, actualizado: new Date().toISOString() });
     }
     const mid = ev.info?.message?.id ? `sp_${ev.info.message.id}` : null;
-    const imagenes = adjuntos.length ? await guardarImagenes(cliente, adjuntos) : null;
+    const guardadas = [...ctx.imagenes, ...(adjuntos.length ? await guardarImagenes(cliente, adjuntos) : [])];
+    const imagenes = guardadas.length ? guardadas : null;
     const { data: fila, error } = await base.from('ig_mensajes').insert({ ig_usuario: cliente, rol: 'user', texto, mid, imagenes }).select('id').single();
     if (error || !fila) continue; // repetido
     after(() => responderMargaret(cliente, fila.id).catch((e) => console.error('Margaret (SendPulse)', e)));
