@@ -98,7 +98,7 @@ export async function editarVozEnOff(op: { guionId?: number; musica?: 'libre' | 
       const salida = path.join(dir, `corte${cortes.length}.mp4`);
       await ffmpeg(['-ss', f.pos.toFixed(2), '-t', largo.toFixed(2), '-i', f.archivo,
         '-vf', `${f.hdr}scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,fps=30,setsar=1`,
-        '-an', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '17', salida]);
+        '-an', '-c:v', 'libx264', '-preset', 'superfast', '-crf', '18', salida]);
       f.pos += largo;
       cortes.push(salida);
       cursor += largo;
@@ -110,7 +110,52 @@ export async function editarVozEnOff(op: { guionId?: number; musica?: 'libre' | 
     await ffmpeg(['-f', 'concat', '-safe', '0', '-i', listaV, '-c', 'copy', base]);
     for (const f of fuentes) await fs.rm(f.archivo, { force: true });
 
-    await paso(`${cortes.length} cortes listos, montando`);
+    // Etapa 1 terminada: dejo la base y la voz en el storage y llamo a la etapa 2 (otra función, con su propio tiempo).
+    const trabajo = `trabajo/vozenoff-${Date.now()}`;
+    await subirPublicacion(base, `${trabajo}/base.mp4`);
+    await subirPublicacion(voz, `${trabajo}/voz.wav`, 'audio/wav');
+    const estado: EstadoMontaje = { titulo, caption, palabras, total, fotos, op, audios: audios.length, clips: clips.length, cortes: cortes.length };
+    const { error } = await db().storage.from('publicaciones').upload(`${trabajo}/estado.json`, Buffer.from(JSON.stringify(estado)), { contentType: 'application/json', upsert: true });
+    if (error) throw new Error(`No pude guardar el avance: ${error.message}`);
+    await paso(`${cortes.length} cortes listos, pasando al montaje`);
+    const r = await fetch(`${process.env.URL_OFICINA || 'https://oficina-agentes-351k.vercel.app'}/api/cron/theo-editar`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cron-secret': process.env.CRON_SECRET || '' },
+      body: JSON.stringify({ tipo: 'vozenoff-montaje', trabajo }),
+    });
+    if (!r.ok) throw new Error(`No pude arrancar el montaje (${r.status}).`);
+    return trabajo;
+  } catch (e: any) {
+    await setAhora('theo', 'No pudo armar el reel con voz en off.', 'idle');
+    await avisar(`Theo no pudo armar el reel con voz en off: ${e.message}`);
+    throw e;
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+type EstadoMontaje = {
+  titulo: string; caption: string; palabras: { word: string; start: number; end: number }[]; total: number;
+  fotos: any[]; op: { guionId?: number; musica?: 'libre' | 'sin'; cancion?: string }; audios: number; clips: number; cortes: number;
+};
+
+// Etapa 2: subtítulos, fotos intercaladas, logo, música, render final y aprobación.
+export async function montarVozEnOff(trabajo: string) {
+  const dir = await carpetaTemporal();
+  const t0 = Date.now();
+  const paso = (q: string) => setAhora('theo', `Voz en off: ${q} (montaje, ${Math.round((Date.now() - t0) / 1000)} s)`, 'ok');
+  const bajar = async (n: string, destino: string) => {
+    const r = await fetch(`${process.env.SUPABASE_URL}/storage/v1/object/public/publicaciones/${trabajo}/${n}`);
+    if (!r.ok) throw new Error(`No encontré ${n} del trabajo (${r.status}).`);
+    await fs.writeFile(destino, Buffer.from(await r.arrayBuffer()));
+    return destino;
+  };
+  try {
+    const estado = JSON.parse(await fs.readFile(await bajar('estado.json', path.join(dir, 'estado.json')), 'utf8')) as EstadoMontaje;
+    const { titulo, caption, palabras, total, fotos, op } = estado;
+    const base = await bajar('base.mp4', path.join(dir, 'base.mp4'));
+    const voz = await bajar('voz.wav', path.join(dir, 'voz.wav'));
+    const audios = { length: estado.audios }, clips = { length: estado.clips }, cortes = { length: estado.cortes };
+    await paso('montando');
     // 3) Montaje: subtítulos palabra por palabra, logo, voz y música opcional.
     const fuente = FUENTE_FUERTE.replace(/\\/g, '/').replace(/:/g, '\\:');
     const dib: string[] = [];
@@ -197,6 +242,7 @@ export async function editarVozEnOff(op: { guionId?: number; musica?: 'libre' | 
       : [{ texto: 'Lo publico yo', dato: `apr:${id}:no` }]);
     if (msg) await db().from('aprobaciones').update({ telegram_msg_id: msg }).eq('id', id);
     await setAhora('theo', 'Reel con voz en off listo: espera tu aprobación.', 'wait');
+    await db().storage.from('publicaciones').remove([`${trabajo}/base.mp4`, `${trabajo}/voz.wav`, `${trabajo}/estado.json`]).catch(() => {});
     return url;
   } catch (e: any) {
     await setAhora('theo', 'No pudo armar el reel con voz en off.', 'idle');

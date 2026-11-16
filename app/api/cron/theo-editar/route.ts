@@ -3,7 +3,7 @@ import { cronAutorizado } from '@/lib/cron';
 import { editarReel, marcaDeAgua } from '@/lib/reel';
 import { sugerirParaVideo } from '@/lib/julian';
 import { editarHistoria } from '@/lib/historia';
-import { editarVozEnOff } from '@/lib/vozenoff';
+import { editarVozEnOff, montarVozEnOff } from '@/lib/vozenoff';
 import { avisar } from '@/lib/telegram';
 import { db } from '@/lib/db';
 import { carpetaEditados, nombreParaDrive } from '@/lib/video';
@@ -15,9 +15,13 @@ export const maxDuration = 300;
 // Arthur llama acá; respondemos enseguida y Theo edita en segundo plano (puede llevar un par de minutos).
 export async function POST(req: Request) {
   if (!cronAutorizado(req)) return Response.json({ error: 'No autorizado' }, { status: 401 });
-  const { guionId, musica, subtitulos, tipo, nombre, descripcion, recuadro, cantidad, cancion } = await req.json().catch(() => ({}));
+  const { guionId, musica, subtitulos, tipo, nombre, descripcion, recuadro, cantidad, cancion, trabajo } = await req.json().catch(() => ({}));
   if (tipo === 'vozenoff') {
     after(() => editarVozEnOff({ guionId: Number(guionId) || undefined, musica: musica === 'libre' || cancion ? 'libre' : 'sin', cancion: cancion || undefined }).then(() => {}).catch(() => {}));
+    return Response.json({ ok: true });
+  }
+  if (tipo === 'vozenoff-montaje' && typeof trabajo === 'string' && /^trabajo\/vozenoff-\d+$/.test(trabajo)) {
+    after(() => montarVozEnOff(trabajo).then(() => {}).catch(() => {}));
     return Response.json({ ok: true });
   }
   if (tipo === 'historia') {
