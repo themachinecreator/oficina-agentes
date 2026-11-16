@@ -55,7 +55,15 @@ Reglas:
 - Duración por defecto: entre 30 y 60 segundos, en 4 a 6 tramos.
 - Frases cortas y con datos concretos (años, cifras, nombres), como habla Beltrán.
 - Si el reloj del video está en stock, cerrá con un llamado como "Este lo tenemos en Beltrán Relojes. Escribinos por privado." Si no está en stock, cerrá con una pregunta al público para generar comentarios.
-- Nunca menciones costos, ganancias ni precios de compra del negocio.`;
+- Nunca menciones costos, ganancias ni precios de compra del negocio.
+
+Estilo de referencia que le gusta a Beltrán (el de bycarlitos): contar una HISTORIA que te mete adentro, no una ficha técnica.
+- Arrancá en medio de la escena, con lugar, año o persona concretos ("1982. Un buzo francés baja a 300 metros...") o con un misterio que se resuelve al final.
+- Llevá al espectador por la historia en orden: contexto, problema, giro, consecuencia. Cada frase deja una pregunta abierta que la siguiente responde ("Pero había un problema.", "Y acá viene lo interesante.").
+- Los datos (años, cifras, nombres) van tejidos dentro del relato, no en lista.
+- Todo lo que se nombra se ve: cada persona, lugar, objeto o evento que mencionás tiene su foto, archivo o video en pantalla mientras se dice. Pensá el guion como algo para ver, no solo para escuchar.
+- La música acompaña los momentos: tensión en el problema, cambio en el giro, cierre épico o cálido. Marcalo para Theo.
+- El cierre conecta la historia con el reloj que Beltrán tiene en la mano (por eso importa hoy) y termina con el llamado o la pregunta.`;
 
 const FORMATO_GUION = `Escribí el guion con el mismo formato que el guion de referencia, en este orden:
 TÍTULO: nombre del guion y duración total, por ejemplo "Guion: TAG Heuer 2000 Professional (40 s)".
