@@ -63,12 +63,21 @@ async function carpetaMusica() {
   return r[0].id;
 }
 
-export async function cancionAlAzar(destino: string) {
+export const normalizar = (t: string) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+// Con `buscar`, usa la canción cuyo nombre contenga esas palabras (si no la encuentra, avisa con error).
+export async function cancionAlAzar(destino: string, buscar?: string) {
   const carpeta = await carpetaMusica();
   if (!carpeta) throw new Error('Falta la carpeta "Música Theo" en el Drive.');
   const temas = await listarDrive(`'${carpeta}' in parents and trashed = false and (mimeType contains 'audio/')`);
   if (!temas.length) throw new Error('La carpeta "Música Theo" no tiene canciones.');
-  const t = temas[Math.floor(Math.random() * temas.length)];
+  let t = temas[Math.floor(Math.random() * temas.length)];
+  if (buscar) {
+    const claves = normalizar(buscar).split(' ').filter((w) => w.length > 2);
+    const elegido = temas.map((x: any) => ({ x, n: claves.filter((c) => normalizar(x.name).includes(c)).length })).sort((a, b) => b.n - a.n)[0];
+    if (!elegido || elegido.n === 0) throw new Error(`No encontré la canción "${buscar}" en la carpeta de música.`);
+    t = elegido.x;
+  }
   await bajarDeDrive(t.id, destino);
   return t.name as string;
 }

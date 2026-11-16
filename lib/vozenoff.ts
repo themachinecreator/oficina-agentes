@@ -1,10 +1,10 @@
 import path from 'path';
 import { promises as fs } from 'fs';
 import { db, setAhora } from './db';
-import { listarDrive } from './google';
+import { listarDrive, jpegDeDrive } from './google';
 import { carpetaRaiz } from './fotos';
 import {
-  ffmpeg, duracionYAudio, filtroHdr, carpetaTemporal, bajarDeDrive, cancionAlAzar, logo,
+  ffmpeg, duracionYAudio, filtroHdr, carpetaTemporal, bajarDeDrive, cancionAlAzar, logo, normalizar,
   subirPublicacion, guardarEnDrive, textoEnArchivo, FUENTE_FUERTE,
 } from './video';
 import { enviarConBotones, avisar } from './telegram';
@@ -34,13 +34,20 @@ async function carpetas(guionId?: number) {
     .sort((a: any, b: any) => numero(a.name) - numero(b.name));
   const clips = (await listarDrive(`'${videos.id}' in parents and trashed = false and mimeType contains 'video/'`, 'files(id,name,mimeType,createdTime)'))
     .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)));
+  // Fotos para intercalar: sueltas en la carpeta del guion o en una subcarpeta "Fotos".
+  // El nombre de cada foto es la palabra en la que aparece (por ejemplo "royal oak.jpg").
+  const fotosDir = dentro.find((s: any) => /^fotos?$/i.test(String(s.name).trim()));
+  const fotos: any[] = [];
+  for (const c of [padre, fotosDir?.id].filter(Boolean)) {
+    fotos.push(...await listarDrive(`'${c}' in parents and trashed = false and mimeType contains 'image/'`, 'files(id,name,mimeType)'));
+  }
   if (!audios.length) throw new Error('La carpeta "Voz" no tiene audios.');
   if (!clips.length) throw new Error('La carpeta "Videos" no tiene videos.');
-  return { audios, clips };
+  return { audios, clips, fotos };
 }
 
-export async function editarVozEnOff(op: { guionId?: number; musica?: 'libre' | 'sin' } = {}) {
-  const { audios, clips } = await carpetas(op.guionId);
+export async function editarVozEnOff(op: { guionId?: number; musica?: 'libre' | 'sin'; cancion?: string } = {}) {
+  const { audios, clips, fotos } = await carpetas(op.guionId);
   let caption = '', titulo = 'Reel con voz en off';
   if (op.guionId) {
     const { data: g } = await db().from('guiones').select('titulo, contenido').eq('id', op.guionId).maybeSingle();
@@ -107,14 +114,48 @@ export async function editarVozEnOff(op: { guionId?: number; musica?: 'libre' | 
       dib.push(`drawtext=fontfile='${fuente}':textfile='${fl}':fontsize=76:fontcolor=white:borderw=7:bordercolor=black@0.9:x=(w-tw)/2:y=h*0.64:enable='between(t,${s.desde.toFixed(2)},${s.hasta.toFixed(2)})'`);
     }
     const entradas = ['-i', base, '-i', voz];
-    const grafo: string[] = [`[0:v]${dib.length ? dib.join(',') : 'null'}[vs]`];
-    let ultimo = '[vs]', idx = 2;
+    const grafo: string[] = [];
+    let ultimo = '[0:v]', idx = 2;
+    // Fotos intercaladas: aparecen a pantalla completa cuando la voz dice su nombre (unos 2,5 s).
+    const sinFoto: string[] = [], conFoto: string[] = [];
+    const dichas = palabras.map((w) => normalizar(w.word));
+    for (const [i, f] of fotos.entries()) {
+      const clave = normalizar(String(f.name).replace(/\.[^.]+$/, '')).replace(/\s*\d+$/, '').split(' ').filter(Boolean);
+      if (!clave.length) continue;
+      let en = -1;
+      for (let j = 0; j + clave.length <= dichas.length && en < 0; j++) {
+        if (clave.every((c, k) => dichas[j + k]?.startsWith(c) || c.startsWith(dichas[j + k] || '#'))) en = j;
+      }
+      if (en < 0) { sinFoto.push(f.name); continue; }
+      const desde = Math.max(0, palabras[en].start - 0.15);
+      const hasta = Math.min(total, Math.max(desde + 2.5, palabras[en + clave.length - 1].end + 0.8));
+      const crudo = path.join(dir, `foto${i}`), jpg = path.join(dir, `foto${i}.jpg`);
+      try {
+        await bajarDeDrive(f.id, crudo);
+        await ffmpeg(['-i', crudo, '-frames:v', '1', '-vf', "scale='min(2000,iw)':-2", '-q:v', '2', jpg]);
+      } catch {
+        await fs.writeFile(jpg, await jpegDeDrive(f.id, 2000));
+      }
+      entradas.push('-loop', '1', '-t', total.toFixed(2), '-i', jpg);
+      grafo.push(
+        `[${idx}:v]split[f${i}a][f${i}b]`,
+        `[f${i}a]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=30:2,eq=brightness=-0.12[f${i}fondo]`,
+        `[f${i}b]scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos[f${i}frente]`,
+        `[f${i}fondo][f${i}frente]overlay=(W-w)/2:(H-h)/2,fps=30,format=yuv420p,setsar=1[f${i}]`,
+        `${ultimo}[f${i}]overlay=0:0:enable='between(t,${desde.toFixed(2)},${hasta.toFixed(2)})'[cf${i}]`,
+      );
+      ultimo = `[cf${i}]`; idx++;
+      conFoto.push(`${String(f.name).replace(/\.[^.]+$/, '')} (${desde.toFixed(1)} s)`);
+    }
+    grafo.push(`${ultimo}${dib.length ? dib.join(',') : 'null'}[vs]`);
+    ultimo = '[vs]';
     const archivoLogo = await logo(path.join(dir, 'logo.png')).catch(() => null);
     if (archivoLogo) { entradas.push('-i', archivoLogo); grafo.push(`[${idx}:v]scale=150:-1,format=rgba,colorchannelmixer=aa=0.8[lg]`, `${ultimo}[lg]overlay=W-w-40:70[vl]`); ultimo = '[vl]'; idx++; }
-    let audio = '[1:a]';
+    let audio = '[1:a]', cancionUsada = '';
     if (op.musica === 'libre') {
       const tema = path.join(dir, 'musica.mp3');
-      await cancionAlAzar(tema);
+      const elegida = await cancionAlAzar(tema, op.cancion);
+      cancionUsada = elegida.replace(/\.[^.]+$/, '');
       entradas.push('-stream_loop', '-1', '-i', tema);
       grafo.push(`[${idx}:a]volume=0.1,afade=t=in:d=1[m]`, `[1:a][m]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,afade=t=out:st=${Math.max(0, total - 1.2).toFixed(2)}:d=1.2[am]`);
       audio = '[am]';
@@ -132,6 +173,9 @@ export async function editarVozEnOff(op: { guionId?: number; musica?: 'libre' | 
     const texto = [
       `Theo — reel con voz en off listo (${Math.round(total)} s, ${audios.length} audios sobre ${clips.length} tomas, ${cortes.length} cortes)`,
       titulo, `Ver video: ${url}`, enDrive,
+      cancionUsada ? `Música: ${cancionUsada}` : '',
+      conFoto.length ? `Fotos intercaladas: ${conFoto.join(', ')}` : '',
+      sinFoto.length ? `No encontré en la voz dónde va: ${sinFoto.join(', ')} (el nombre de la foto tiene que ser la palabra que decís).` : '',
       palabras.length ? '' : '\n(No pude transcribir la voz: va sin subtítulos.)',
       caption ? `\nTexto que se publica:\n${caption}` : '',
     ].filter(Boolean).join('\n');

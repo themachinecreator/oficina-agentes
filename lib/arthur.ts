@@ -261,8 +261,8 @@ const herramientasTheo: Anthropic.Tool[] = [
   },
   {
     name: 'editar_voz_en_off',
-    description: 'Theo arma un reel con la voz en off de Beltrán (audios por toma en la carpeta "Voz") sobre sus tomas de video (carpeta "Videos"), dentro de la carpeta de videos para editar (o de "Guion N"): cortes al ritmo, subtítulos, logo y música opcional.',
-    input_schema: { type: 'object', properties: { guion_id: { type: 'number', description: 'Guion al que corresponde (para el texto de la publicación), si se sabe.' }, musica: { type: 'string', enum: ['libre', 'sin'] } } },
+    description: 'Theo arma un reel con la voz en off de Beltrán (audios por toma en la carpeta "Voz") sobre sus tomas de video (carpeta "Videos"), dentro de la carpeta de videos para editar (o de "Guion N"): cortes al ritmo, subtítulos, logo y música opcional. Si hay fotos en la carpeta del guion (o en una subcarpeta "Fotos") cuyo nombre es una palabra que se dice ("royal oak.jpg"), las muestra en ese momento.',
+    input_schema: { type: 'object', properties: { guion_id: { type: 'number', description: 'Guion al que corresponde (para el texto de la publicación), si se sabe.' }, musica: { type: 'string', enum: ['libre', 'sin'] }, cancion: { type: 'string', description: 'Nombre (o parte) de una canción puntual de la carpeta de música de Theo, si Beltrán pidió una.' } } },
   },
   {
     name: 'editar_historia',
@@ -454,7 +454,7 @@ async function ejecutar(nombre: string, input: any): Promise<string> {
       const base = process.env.URL_OFICINA || 'https://oficina-agentes-351k.vercel.app';
       const r = await fetch(`${base}/api/cron/theo-editar`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cron-secret': process.env.CRON_SECRET || '' },
-        body: JSON.stringify({ tipo: 'vozenoff', guionId: input.guion_id, musica: input.musica || 'sin' }),
+        body: JSON.stringify({ tipo: 'vozenoff', guionId: input.guion_id, musica: input.musica || 'sin', cancion: input.cancion }),
       });
       return r.ok ? 'Theo está armando el reel con la voz en off; avisa por Telegram en unos minutos.' : `Theo no pudo arrancar (${r.status}).`;
     }
