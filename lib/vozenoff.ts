@@ -55,6 +55,8 @@ export async function editarVozEnOff(op: { guionId?: number; musica?: 'libre' | 
   }
   await setAhora('theo', `Armando el reel con voz en off (${audios.length} audios, ${clips.length} tomas).`, 'ok');
   const dir = await carpetaTemporal();
+  const t0 = Date.now();
+  const paso = (q: string) => setAhora('theo', `Voz en off: ${q} (${Math.round((Date.now() - t0) / 1000)} s)`, 'ok');
   try {
     // 1) Voz: cada audio recortado de silencios en los bordes, unidos con una pausa corta, y transcriptos con tiempos.
     const partes: string[] = [];
@@ -78,6 +80,7 @@ export async function editarVozEnOff(op: { guionId?: number; musica?: 'libre' | 
     const voz = path.join(dir, 'voz.wav');
     await ffmpeg(['-f', 'concat', '-safe', '0', '-i', lista, '-c', 'copy', voz]);
 
+    await paso('voz lista, bajando tomas');
     // 2) Tomas: cortes de ~3 s que van rotando entre los videos; cada video avanza para no repetir la misma parte.
     const fuentes: { archivo: string; dur: number; hdr: string; pos: number }[] = [];
     for (const [i, c] of clips.entries()) {
@@ -85,6 +88,7 @@ export async function editarVozEnOff(op: { guionId?: number; musica?: 'libre' | 
       const { dur } = await duracionYAudio(archivo);
       fuentes.push({ archivo, dur, hdr: await filtroHdr(archivo), pos: Math.min(0.4, dur / 4) });
     }
+    await paso('tomas bajadas, cortando');
     const cortes: string[] = [];
     let k = 0, cursor = 0;
     while (cursor < total - 0.05) {
@@ -106,6 +110,7 @@ export async function editarVozEnOff(op: { guionId?: number; musica?: 'libre' | 
     await ffmpeg(['-f', 'concat', '-safe', '0', '-i', listaV, '-c', 'copy', base]);
     for (const f of fuentes) await fs.rm(f.archivo, { force: true });
 
+    await paso(`${cortes.length} cortes listos, montando`);
     // 3) Montaje: subtítulos palabra por palabra, logo, voz y música opcional.
     const fuente = FUENTE_FUERTE.replace(/\\/g, '/').replace(/:/g, '\\:');
     const dib: string[] = [];
@@ -165,11 +170,13 @@ export async function editarVozEnOff(op: { guionId?: number; musica?: 'libre' | 
       grafo.push(`[${idx}:a]volume=0.1,afade=t=in:d=1[m]`, `[1:a][m]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,afade=t=out:st=${Math.max(0, total - 1.2).toFixed(2)}:d=1.2[am]`);
       audio = '[am]';
     }
+    await paso('renderizando el final');
     const final = path.join(dir, 'final.mp4');
     await ffmpeg([...entradas, '-filter_complex', grafo.join(';'), '-map', ultimo, '-map', audio, '-t', total.toFixed(2),
       '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-maxrate', '12M', '-bufsize', '24M', '-pix_fmt', 'yuv420p',
       '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', final], 280000);
 
+    await paso('subiendo');
     const nombre = `reels/vozenoff-${Date.now()}.mp4`;
     const url = await subirPublicacion(final, nombre);
     const enDrive = await guardarEnDrive(final, titulo);
