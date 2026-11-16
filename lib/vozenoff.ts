@@ -122,13 +122,16 @@ export async function editarVozEnOff(op: { guionId?: number; musica?: 'libre' | 
     for (const [i, f] of fotos.entries()) {
       const clave = normalizar(String(f.name).replace(/\.[^.]+$/, '')).replace(/\s*\d+$/, '').split(' ').filter(Boolean);
       if (!clave.length) continue;
-      let en = -1;
-      for (let j = 0; j + clave.length <= dichas.length && en < 0; j++) {
-        if (clave.every((c, k) => dichas[j + k]?.startsWith(c) || c.startsWith(dichas[j + k] || '#'))) en = j;
+      // Todas las veces que se dice (con "ROYALOAK.jpg" alcanza con que diga "Royal").
+      const coincide = (c: string, d?: string) => !!d && (d.startsWith(c) || (d.length >= 4 && c.startsWith(d)));
+      const tramos: { desde: number; hasta: number }[] = [];
+      for (let j = 0; j + clave.length <= dichas.length; j++) {
+        if (!clave.every((c, k) => coincide(c, dichas[j + k]))) continue;
+        const desde = Math.max(0, palabras[j].start - 0.15);
+        if (tramos.length && desde < tramos[tramos.length - 1].hasta + 1) continue;
+        tramos.push({ desde, hasta: Math.min(total, Math.max(desde + 2.5, palabras[j + clave.length - 1].end + 0.8)) });
       }
-      if (en < 0) { sinFoto.push(f.name); continue; }
-      const desde = Math.max(0, palabras[en].start - 0.15);
-      const hasta = Math.min(total, Math.max(desde + 2.5, palabras[en + clave.length - 1].end + 0.8));
+      if (!tramos.length) { sinFoto.push(f.name); continue; }
       const crudo = path.join(dir, `foto${i}`), jpg = path.join(dir, `foto${i}.jpg`);
       try {
         await bajarDeDrive(f.id, crudo);
@@ -142,10 +145,10 @@ export async function editarVozEnOff(op: { guionId?: number; musica?: 'libre' | 
         `[f${i}a]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=30:2,eq=brightness=-0.12[f${i}fondo]`,
         `[f${i}b]scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos[f${i}frente]`,
         `[f${i}fondo][f${i}frente]overlay=(W-w)/2:(H-h)/2,fps=30,format=yuv420p,setsar=1[f${i}]`,
-        `${ultimo}[f${i}]overlay=0:0:enable='between(t,${desde.toFixed(2)},${hasta.toFixed(2)})'[cf${i}]`,
+        `${ultimo}[f${i}]overlay=0:0:enable='${tramos.map((x) => `between(t,${x.desde.toFixed(2)},${x.hasta.toFixed(2)})`).join('+')}'[cf${i}]`,
       );
       ultimo = `[cf${i}]`; idx++;
-      conFoto.push(`${String(f.name).replace(/\.[^.]+$/, '')} (${desde.toFixed(1)} s)`);
+      conFoto.push(`${String(f.name).replace(/\.[^.]+$/, '')} (${tramos.map((x) => `${x.desde.toFixed(1)} s`).join(', ')})`);
     }
     grafo.push(`${ultimo}${dib.length ? dib.join(',') : 'null'}[vs]`);
     ultimo = '[vs]';
