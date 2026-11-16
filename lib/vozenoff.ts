@@ -104,15 +104,12 @@ export async function editarVozEnOff(op: { guionId?: number; musica?: 'libre' | 
       cursor += largo;
       k++;
     }
-    const listaV = path.join(dir, 'cortes.txt');
-    await fs.writeFile(listaV, cortes.map((p) => `file '${p}'`).join('\n'));
-    const base = path.join(dir, 'base.mp4');
-    await ffmpeg(['-f', 'concat', '-safe', '0', '-i', listaV, '-c', 'copy', base]);
     for (const f of fuentes) await fs.rm(f.archivo, { force: true });
 
     // Etapa 1 terminada: dejo la base y la voz en el storage y llamo a la etapa 2 (otra función, con su propio tiempo).
     const trabajo = `trabajo/vozenoff-${Date.now()}`;
-    await subirPublicacion(base, `${trabajo}/base.mp4`);
+    // Cada corte por separado: el storage no acepta archivos de más de 50 MB.
+    for (const [i, c] of cortes.entries()) await subirPublicacion(c, `${trabajo}/corte${i}.mp4`);
     await subirPublicacion(voz, `${trabajo}/voz.wav`, 'audio/wav');
     const estado: EstadoMontaje = { titulo, caption, palabras, total, fotos, op, audios: audios.length, clips: clips.length, cortes: cortes.length };
     const { error } = await db().storage.from('publicaciones').upload(`${trabajo}/estado.json`, Buffer.from(JSON.stringify(estado)), { contentType: 'application/json', upsert: true });
@@ -125,7 +122,7 @@ export async function editarVozEnOff(op: { guionId?: number; musica?: 'libre' | 
     if (!r.ok) throw new Error(`No pude arrancar el montaje (${r.status}).`);
     return trabajo;
   } catch (e: any) {
-    await setAhora('theo', 'No pudo armar el reel con voz en off.', 'idle');
+    await setAhora('theo', `No pudo armar el reel con voz en off: ${String(e.message).slice(0, 160)}`, 'idle');
     await avisar(`Theo no pudo armar el reel con voz en off: ${e.message}`);
     throw e;
   } finally {
@@ -152,7 +149,12 @@ export async function montarVozEnOff(trabajo: string) {
   try {
     const estado = JSON.parse(await fs.readFile(await bajar('estado.json', path.join(dir, 'estado.json')), 'utf8')) as EstadoMontaje;
     const { titulo, caption, palabras, total, fotos, op } = estado;
-    const base = await bajar('base.mp4', path.join(dir, 'base.mp4'));
+    const partesV: string[] = [];
+    for (let i = 0; i < estado.cortes; i++) partesV.push(await bajar(`corte${i}.mp4`, path.join(dir, `corte${i}.mp4`)));
+    const listaV = path.join(dir, 'cortes.txt');
+    await fs.writeFile(listaV, partesV.map((p) => `file '${p}'`).join('\n'));
+    const base = path.join(dir, 'base.mp4');
+    await ffmpeg(['-f', 'concat', '-safe', '0', '-i', listaV, '-c', 'copy', base]);
     const voz = await bajar('voz.wav', path.join(dir, 'voz.wav'));
     const audios = { length: estado.audios }, clips = { length: estado.clips }, cortes = { length: estado.cortes };
     await paso('montando');
@@ -218,7 +220,7 @@ export async function montarVozEnOff(trabajo: string) {
     await paso('renderizando el final');
     const final = path.join(dir, 'final.mp4');
     await ffmpeg([...entradas, '-filter_complex', grafo.join(';'), '-map', ultimo, '-map', audio, '-t', total.toFixed(2),
-      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-maxrate', '12M', '-bufsize', '24M', '-pix_fmt', 'yuv420p',
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-maxrate', '9M', '-bufsize', '18M', '-pix_fmt', 'yuv420p',
       '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', final], 280000);
 
     await paso('subiendo');
@@ -242,10 +244,10 @@ export async function montarVozEnOff(trabajo: string) {
       : [{ texto: 'Lo publico yo', dato: `apr:${id}:no` }]);
     if (msg) await db().from('aprobaciones').update({ telegram_msg_id: msg }).eq('id', id);
     await setAhora('theo', 'Reel con voz en off listo: espera tu aprobación.', 'wait');
-    await db().storage.from('publicaciones').remove([`${trabajo}/base.mp4`, `${trabajo}/voz.wav`, `${trabajo}/estado.json`]).catch(() => {});
+    await db().storage.from('publicaciones').remove([...Array.from({ length: estado.cortes }, (_, i) => `${trabajo}/corte${i}.mp4`), `${trabajo}/voz.wav`, `${trabajo}/estado.json`]).catch(() => {});
     return url;
   } catch (e: any) {
-    await setAhora('theo', 'No pudo armar el reel con voz en off.', 'idle');
+    await setAhora('theo', `No pudo armar el reel con voz en off: ${String(e.message).slice(0, 160)}`, 'idle');
     await avisar(`Theo no pudo armar el reel con voz en off: ${e.message}`);
     throw e;
   } finally {
