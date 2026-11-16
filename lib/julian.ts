@@ -76,14 +76,16 @@ HASHTAGS: entre 6 y 10, mezclando español e inglés, siempre con #beltranreloje
 QUÉ GRABAR: lista corta de las tomas para grabar de corrido (qué reloj, luz, fondo, ángulo).
 PARA THEO: ritmo de cortes, música sugerida (estilo, no canciones con nombre), subtítulos y cierre.`;
 
-async function generar(pedido: string, maxTokens = 2500) {
+async function generar(pedido: string, maxTokens = 8000) {
   const r = await anthropic.messages.create({
     model: MODELO_JULIAN,
     max_tokens: maxTokens,
     system: `${SISTEMA}\n\n${await contexto()}`,
     messages: [{ role: 'user', content: pedido }],
   });
-  return r.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n').trim();
+  const texto = r.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n').trim();
+  if (!texto) throw new Error('Julian se quedó sin espacio antes de escribir (respuesta vacía).');
+  return texto;
 }
 
 const tituloDe = (texto: string) => (texto.match(/T[IÍ]TULO:\s*(.+)/i)?.[1] || texto.split('\n')[0]).trim().slice(0, 120);
@@ -112,7 +114,7 @@ export async function pedirGuion(input: { tema?: string; formato?: string; notas
     input.notas ? `Indicaciones de Beltrán: ${input.notas}.` : '',
     /histori/i.test(`${input.formato || ''} ${input.tema || ''}`) ? FORMATO_HISTORIA : FORMATO_GUION,
   ].filter(Boolean).join('\n');
-  const guion = await generar(pedido, /histori/i.test(`${input.formato || ''} ${input.tema || ''}`) ? 3500 : 2500);
+  const guion = await generar(pedido, /histori/i.test(`${input.formato || ''} ${input.tema || ''}`) ? 12000 : 8000);
   const { data } = await db().from('guiones').insert({ titulo: tituloDe(guion), formato: input.formato || null, contenido: guion }).select('id').single();
   if (chatId) await enviar(chatId, `Julian — guion #${data?.id}\n\n${guion}`);
   await setAhora('julian', `Entregó el guion #${data?.id}: ${tituloDe(guion)}.`, 'ok');
