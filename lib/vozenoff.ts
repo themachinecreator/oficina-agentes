@@ -139,12 +139,14 @@ export async function editarVozEnOff(op: { guionId?: number; musica?: 'libre' | 
       } catch {
         await fs.writeFile(jpg, await jpegDeDrive(f.id, 2000));
       }
-      entradas.push('-loop', '1', '-t', total.toFixed(2), '-i', jpg);
+      // La foto se compone una sola vez (fondo desenfocado + foto entera al medio) y después solo se superpone.
+      const lista = path.join(dir, `lista${i}.png`);
+      await ffmpeg(['-i', jpg, '-filter_complex',
+        '[0:v]split[a][b];[a]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=30:2,eq=brightness=-0.12[fondo];[b]scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos[frente];[fondo][frente]overlay=(W-w)/2:(H-h)/2,setsar=1',
+        '-frames:v', '1', lista]);
+      entradas.push('-loop', '1', '-framerate', '30', '-t', total.toFixed(2), '-i', lista);
       grafo.push(
-        `[${idx}:v]split[f${i}a][f${i}b]`,
-        `[f${i}a]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=30:2,eq=brightness=-0.12[f${i}fondo]`,
-        `[f${i}b]scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos[f${i}frente]`,
-        `[f${i}fondo][f${i}frente]overlay=(W-w)/2:(H-h)/2,fps=30,format=yuv420p,setsar=1[f${i}]`,
+        `[${idx}:v]format=yuv420p[f${i}]`,
         `${ultimo}[f${i}]overlay=0:0:enable='${tramos.map((x) => `between(t,${x.desde.toFixed(2)},${x.hasta.toFixed(2)})`).join('+')}'[cf${i}]`,
       );
       ultimo = `[cf${i}]`; idx++;
