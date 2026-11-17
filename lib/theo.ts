@@ -88,7 +88,7 @@ export async function publicarArmadas(minutos = 90) {
   for (const p of data || []) {
     try {
       const url = `${process.env.SUPABASE_URL}/storage/v1/object/public/publicaciones/${p.archivo}`;
-      const cont = await crearContenedor('STORIES', url, true);
+      const cont = await crearContenedor('STORIES', url, !/\.(jpe?g|png)$/i.test(p.archivo));
       await esperarContenedor(cont);
       const id = await publicarContenedor(cont);
       await db().from('publicaciones').update({ estado: 'publicada', ig_media_id: id }).eq('id', p.id);
