@@ -4,6 +4,9 @@ import { db, setAhora } from './db';
 import { stockDisponible, carpetaDelReloj, Reloj } from './stock';
 import { ffmpeg, filtroHdr, carpetaTemporal, bajarDeDrive, cancionAlAzar, subirPublicacion, textoEnArchivo, FUENTE_FUERTE, FUENTE_NORMAL } from './video';
 import { crearContenedor, esperarContenedor, publicarContenedor } from './publicar';
+import { carpetasRelojes } from './fotos';
+import { jpegDeDrive } from './google';
+import { normalizar } from './video';
 
 const nombreReloj = (r: Reloj) => `${r['Marca'] || ''} ${r['Modelo'] || ''}`.replace(/\s+/g, ' ').trim();
 
@@ -95,4 +98,56 @@ export async function publicarArmadas(minutos = 90) {
     }
   }
   return hechas;
+}
+
+// Historia de "VENDIDO": foto del reloj (de "Fotos relojes") con el cartel encima. Se publica como imagen.
+export async function historiaVendido(reloj: string, publicar = true) {
+  const carpetas = await carpetasRelojes();
+  const claves = normalizar(reloj).split(' ').filter((w) => w.length > 1);
+  const puntos = (n: string) => claves.filter((c) => normalizar(n).includes(c)).length;
+  const elegida = [...carpetas].sort((a, b) => puntos(b.nombre) - puntos(a.nombre))[0];
+  if (!elegida || puntos(elegida.nombre) === 0) throw new Error(`No encontré fotos de "${reloj}" en "Fotos relojes".`);
+  // Si varias carpetas empatan, aviso para no publicar el reloj equivocado.
+  const empatadas = carpetas.filter((c) => puntos(c.nombre) === puntos(elegida.nombre));
+  if (empatadas.length > 1) throw new Error(`Hay varias carpetas que coinciden con "${reloj}": ${empatadas.map((c) => c.nombre).join(', ')}. Decime cuál.`);
+  const dir = await carpetaTemporal();
+  try {
+    const foto = path.join(dir, 'foto.jpg');
+    if (elegida.fotos.length) {
+      const crudo = await bajarDeDrive(elegida.fotos[0], path.join(dir, 'crudo'));
+      try { await ffmpeg(['-i', crudo, '-frames:v', '1', '-q:v', '2', foto], 60000); }
+      catch { await fs.writeFile(foto, await jpegDeDrive(elegida.fotos[0], 2000)); }
+    } else {
+      const vid = await bajarDeDrive(elegida.videos[0], path.join(dir, 'video.mp4'));
+      const hdr = await filtroHdr(vid);
+      await ffmpeg(['-ss', '1', '-i', vid, '-frames:v', '1', '-vf', `${hdr || ''}scale=1440:-2`.replace(/^,/, ''), '-q:v', '2', foto], 90000);
+    }
+    const t1 = await textoEnArchivo(dir, 't1', 'VENDIDO');
+    const t2 = await textoEnArchivo(dir, 't2', elegida.nombre);
+    const t3 = await textoEnArchivo(dir, 't3', 'Gracias por la confianza · beltranrelojes');
+    const f1 = FUENTE_FUERTE.replace(/\\/g, '/').replace(/:/g, '\\:');
+    const f2 = FUENTE_NORMAL.replace(/\\/g, '/').replace(/:/g, '\\:');
+    const salida = path.join(dir, 'vendido.jpg');
+    await ffmpeg(['-i', foto, '-filter_complex', [
+      '[0:v]split[a][b]',
+      '[a]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=30:2,eq=brightness=-0.2[fondo]',
+      '[b]scale=1000:1500:force_original_aspect_ratio=decrease:flags=lanczos[frente]',
+      `[fondo][frente]overlay=(W-w)/2:(H-h)/2-80,drawbox=x=0:y=ih/2-170:w=iw:h=230:color=black@0.55:t=fill,` +
+      `drawtext=fontfile='${f1}':textfile='${t1}':fontsize=170:fontcolor=0xE3C27A:x=(w-tw)/2:y=h/2-150,` +
+      `drawbox=x=0:y=ih-330:w=iw:h=330:color=black@0.5:t=fill,` +
+      `drawtext=fontfile='${f1}':textfile='${t2}':fontsize=56:fontcolor=white:x=(w-tw)/2:y=h-260,` +
+      `drawtext=fontfile='${f2}':textfile='${t3}':fontsize=36:fontcolor=white@0.85:x=(w-tw)/2:y=h-160`,
+    ].join(';'), '-frames:v', '1', '-q:v', '2', salida], 60000);
+    const archivo = `historias/vendido-${Date.now()}.jpg`;
+    const url = await subirPublicacion(salida, archivo, 'image/jpeg');
+    const { data: fila } = await db().from('publicaciones').insert({ tipo: 'historia', reloj: `${elegida.nombre} (vendido)`, archivo, estado: 'armada' }).select('id').single();
+    if (!publicar) return { url, reloj: elegida.nombre };
+    const cont = await crearContenedor('STORIES', url, false);
+    await esperarContenedor(cont);
+    const id = await publicarContenedor(cont);
+    await db().from('publicaciones').update({ estado: 'publicada', ig_media_id: id }).eq('id', fila?.id);
+    return { url, reloj: elegida.nombre, id };
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
 }

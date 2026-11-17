@@ -274,6 +274,11 @@ const herramientasTheo: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'historia_vendido',
+    description: 'Theo arma y sube YA a historias de Instagram una imagen de "VENDIDO" con la foto del reloj (de "Fotos relojes"). Usala cuando Beltrán pida avisar que un reloj se vendió. Un reloj por llamada. Avisa por Telegram cuando está publicada.',
+    input_schema: { type: 'object', properties: { reloj: { type: 'string', description: 'Marca, modelo y referencia si la hay, por ejemplo "Tudor Prince OysterDate 91520".' } }, required: ['reloj'] },
+  },
+  {
     name: 'marca_de_agua',
     description: 'Theo toma un video ya terminado (por ejemplo hecho con IA) que Beltrán dejó suelto en "Videos para editar", lo pasa a formato Reel, le pone el logo chico abajo a la derecha y Julian sugiere qué agregarle. Avisa por Telegram.',
     input_schema: {
@@ -465,6 +470,14 @@ async function ejecutar(nombre: string, input: any): Promise<string> {
         body: JSON.stringify({ tipo: 'historia', guionId: input.guion_id, musica: input.musica || 'sin' }),
       });
       return r.ok ? `Theo está editando el video de historia del guion #${input.guion_id}; tarda unos minutos y avisa por Telegram.` : `Theo no pudo arrancar (${r.status}).`;
+    }
+    if (nombre === 'historia_vendido') {
+      const base = process.env.URL_OFICINA || 'https://oficina-agentes-351k.vercel.app';
+      const r = await fetch(`${base}/api/cron/theo-editar`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cron-secret': process.env.CRON_SECRET || '' },
+        body: JSON.stringify({ tipo: 'vendido', nombre: input.reloj }),
+      });
+      return r.ok ? `Theo está subiendo la historia de VENDIDO del ${input.reloj}; avisa por Telegram cuando está publicada.` : `Theo no pudo arrancar (${r.status}).`;
     }
     if (nombre === 'marca_de_agua') {
       const base = process.env.URL_OFICINA || 'https://oficina-agentes-351k.vercel.app';

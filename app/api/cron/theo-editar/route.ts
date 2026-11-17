@@ -24,6 +24,21 @@ export async function POST(req: Request) {
     after(() => montarVozEnOff(trabajo).then(() => {}).catch(() => {}));
     return Response.json({ ok: true });
   }
+  if (tipo === 'vendido' && typeof nombre === 'string' && nombre.trim()) {
+    const { historiaVendido } = await import('@/lib/theo');
+    after(async () => {
+      try {
+        const prueba = new URL(req.url).searchParams.get('prueba') === '1';
+        const r = await historiaVendido(nombre, !prueba);
+        if (prueba) await db().from('credenciales').upsert({ clave: 'theo_prueba_vendido', valor: `${r.reloj} ${r.url}`, actualizado: new Date().toISOString() });
+        else await avisar(`Theo subió la historia de VENDIDO del ${r.reloj}.\n${r.url}`);
+      } catch (e: any) {
+        await db().from('credenciales').upsert({ clave: 'theo_prueba_vendido', valor: `ERROR ${e.message}`, actualizado: new Date().toISOString() });
+        await avisar(`Theo no pudo subir la historia de vendido: ${e.message}`);
+      }
+    });
+    return Response.json({ ok: true });
+  }
   if (tipo === 'historia') {
     after(() => editarHistoria(Number(guionId), { musica: musica === 'libre' ? 'libre' : 'sin' }).then(() => {}).catch(() => {}));
     return Response.json({ ok: true });
