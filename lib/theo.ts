@@ -47,7 +47,7 @@ export async function armarHistoria(r: Reloj) {
       ...entradaArgs, '-stream_loop', '-1', '-i', musica,
       '-filter_complex', `${base},${ficha}[v];[1:a]volume=0.8,afade=t=in:d=0.6[a]`,
       '-map', '[v]', '-map', '[a]', '-t', esVideo ? '15' : '8', '-shortest',
-      '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-maxrate', '10M', '-bufsize', '20M', '-profile:v', 'high', '-pix_fmt', 'yuv420p',
+      '-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-maxrate', '10M', '-bufsize', '20M', '-profile:v', 'high', '-pix_fmt', 'yuv420p',
       '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', salida,
     ]);
     const nombre = `historias/${new Date().toISOString().slice(0, 10)}-${(r['Referencia'] || nombreReloj(r)).replace(/[^\w-]/g, '')}-${Date.now()}.mp4`;
@@ -58,12 +58,13 @@ export async function armarHistoria(r: Reloj) {
   }
 }
 
-export async function publicarHistoriaDe(r: Reloj, publicar = true) {
+export async function publicarHistoriaDe(r: Reloj, publicar: boolean | 'aparte' = true) {
   const { url, archivo, tema } = await armarHistoria(r);
   // Con el detalle (dial) para distinguir piezas iguales cuando un cliente responde la historia.
   const etiqueta = r['Detalle'] ? `${nombreReloj(r)} (${r['Detalle']})` : nombreReloj(r);
   const { data: fila } = await db().from('publicaciones').insert({ tipo: 'historia', reloj: etiqueta, archivo, estado: 'armada' }).select('id').single();
-  if (!publicar) return { url, tema };
+  if (!publicar) return { url, tema, fila: fila?.id as number };
+  if (publicar === 'aparte') return { url, tema, fila: fila?.id as number };
   try {
     const cont = await crearContenedor('STORIES', url, true);
     await esperarContenedor(cont);
@@ -72,6 +73,23 @@ export async function publicarHistoriaDe(r: Reloj, publicar = true) {
     return { url, tema, id };
   } catch (e: any) {
     await db().from('publicaciones').update({ estado: 'error', error: e.message }).eq('id', fila?.id);
+    throw e;
+  }
+}
+
+// Publica en Instagram una historia ya armada (se llama aparte para no sumar la espera de Instagram al armado).
+export async function publicarArmada(id: number) {
+  const { data: p } = await db().from('publicaciones').select('id, reloj, archivo, estado').eq('id', id).maybeSingle();
+  if (!p || p.estado !== 'armada') return null;
+  const url = `${process.env.SUPABASE_URL}/storage/v1/object/public/publicaciones/${p.archivo}`;
+  try {
+    const cont = await crearContenedor('STORIES', url, !/\.(jpe?g|png)$/i.test(p.archivo));
+    await esperarContenedor(cont);
+    const igId = await publicarContenedor(cont);
+    await db().from('publicaciones').update({ estado: 'publicada', ig_media_id: igId }).eq('id', p.id);
+    return igId;
+  } catch (e: any) {
+    await db().from('publicaciones').update({ estado: 'error', error: e.message }).eq('id', p.id);
     throw e;
   }
 }

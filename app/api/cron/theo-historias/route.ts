@@ -1,7 +1,7 @@
 import { after } from 'next/server';
 import { cronAutorizado } from '@/lib/cron';
 import { googleConectado } from '@/lib/google';
-import { publicarArmadas, publicarHistoriaDe, relojesParaHistorias, setAhora } from '@/lib/theo';
+import { publicarArmadas, publicarArmada, publicarHistoriaDe, relojesParaHistorias, setAhora } from '@/lib/theo';
 import { avisar } from '@/lib/telegram';
 import { db } from '@/lib/db';
 
@@ -21,6 +21,13 @@ async function correr(req: Request) {
     });
     return Response.json({ ok: true });
   }
+  // Publicar una historia ya armada (la tanda la arma y llama acá para no pasarse de tiempo).
+  const publicarId = Number(url.searchParams.get('publicar') || 0);
+  if (publicarId) {
+    try { await publicarArmada(publicarId); }
+    catch (e: any) { await avisar(`Theo no pudo publicar una historia: ${e.message}`); }
+    return Response.json({ ok: true });
+  }
   const i = Number(url.searchParams.get('i') || 0);
   const prueba = url.searchParams.get('prueba') === '1';
   // La tanda programada se saltea si ya se publicaron historias en las últimas 30 horas (por ejemplo, una tanda manual).
@@ -36,19 +43,23 @@ async function correr(req: Request) {
   await setAhora('theo', `Armando la historia de ${nombre} (${i + 1} de ${relojes.length}).`, 'ok');
   let resultado: any = null;
   try {
-    resultado = await publicarHistoriaDe(r, !prueba);
+    resultado = await publicarHistoriaDe(r, prueba ? false : 'aparte');
     if (prueba) await avisar(`Theo — historia de prueba (no publicada)\n${nombre}\n${resultado.url}`);
+    else if (resultado?.fila) {
+      const pub = new URL(req.url); pub.search = `?publicar=${resultado.fila}`;
+      after(() => fetch(pub, { method: 'POST', headers: { 'x-cron-secret': process.env.CRON_SECRET || '' }, signal: AbortSignal.timeout(8000) }).catch(() => {}));
+    }
   } catch (e: any) {
     await avisar(`Theo no pudo armar la historia de ${nombre}: ${e.message}`);
   }
   if (i + 1 < relojes.length) {
     const siguiente = new URL(req.url); siguiente.searchParams.set('i', String(i + 1));
-    after(() => fetch(siguiente, { method: 'POST', headers: { 'x-cron-secret': process.env.CRON_SECRET || '' } }).catch(() => {}));
+    after(() => fetch(siguiente, { method: 'POST', headers: { 'x-cron-secret': process.env.CRON_SECRET || '' }, signal: AbortSignal.timeout(8000) }).catch(() => {}));
   } else {
     await setAhora('theo', prueba ? 'Terminó las historias de prueba.' : `Publicó las historias del stock (${relojes.length}).`, 'ok');
     if (!prueba) await avisar(`Theo publicó las historias del stock de hoy (${relojes.length} relojes).`);
   }
-  return Response.json({ ok: true, i, reloj: nombre, url: resultado?.url, publicado: !!resultado?.id });
+  return Response.json({ ok: true, i, reloj: nombre, url: resultado?.url, fila: resultado?.fila });
 }
 export const GET = correr;
 export const POST = correr;
