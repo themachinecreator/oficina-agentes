@@ -100,7 +100,9 @@ export async function stockDisponible(): Promise<Reloj[]> {
     try {
       const socio = leerPlanilla(await exportarPlanillaCsv(valor('socio_sheet_id')!), 'sociedad');
       for (const r of socio) if (r['Dial'] && !r['Detalle']) r['Detalle'] = `Dial ${r['Dial'].toLowerCase()}`;
-      const deSocio = asignarArchivosSocio(socio, await videosSocio());
+      const archivosSocio = await videosSocio();
+      const deSocio = asignarArchivosSocio(socio, archivosSocio);
+      await db().from('credenciales').upsert({ clave: 'socio_error', valor: `ok: ${socio.length} relojes, ${archivosSocio.length} archivos, ${deSocio.size} emparejados`, actualizado: new Date().toISOString() });
       for (const r of socio) {
         const c = deSocio.get(r);
         if (!c) continue;
@@ -108,7 +110,10 @@ export async function stockDisponible(): Promise<Reloj[]> {
         carpetaDe.set(r, c);
         conFotos.push(r);
       }
-    } catch { /* si la planilla del socio falla, sigue el resto del stock */ }
+    } catch (e: any) {
+      // Si la planilla del socio falla, sigue el resto del stock (queda anotado el motivo).
+      await db().from('credenciales').upsert({ clave: 'socio_error', valor: String(e?.message || e), actualizado: new Date().toISOString() });
+    }
   }
   cache = { cuando: Date.now(), relojes: conFotos };
   return conFotos;
