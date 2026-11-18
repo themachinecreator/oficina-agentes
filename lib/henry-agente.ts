@@ -4,7 +4,7 @@ import { anthropic, fechaBA, hoyISO } from './claude';
 import { escribirRango, columnaLetra } from './google';
 import { avisar, enviarFoto, dueñoChatId } from './telegram';
 import {
-  leerLibro, asegurarFechas, celda, costoTotal, vendido, nombreReloj, numero, usd, resumenFinanzas, Libro,
+  leerLibro, asegurarFechas, celda, costoTotal, vendido, nombreReloj, numero, usd, resumenFinanzas, Libro, flujoDeCaja,
 } from './henry';
 
 // Henry como agente: recibe un pedido abierto de Beltrán (vía Arthur), lo trabaja con sus herramientas
@@ -109,6 +109,7 @@ async function graficoPatrimonial() {
 const herramientas: Anthropic.Tool[] = [
   { name: 'ver_libro', description: 'Lee la planilla Watches completa (solo los relojes que llevás): cada fila con su número y todas sus columnas, incluidos costos.', input_schema: { type: 'object', properties: {} } },
   { name: 'ver_gastos', description: 'Lista los gastos del negocio anotados.', input_schema: { type: 'object', properties: {} } },
+  { name: 'flujo_de_caja', description: 'Flujo de caja completo: todas las compras y ventas del libro (aunque el reloj no tenga fotos), la hoja Retiros (plata que Beltrán sacó para él) y los gastos. Usala para explicar dónde está la plata, si la ganancia se reinvirtió o cuánto debería haber en caja.', input_schema: { type: 'object', properties: {} } },
   {
     name: 'escribir_celda',
     description: 'Escribe un valor en una celda de la planilla Watches. Las fechas van como AAAA-MM-DD. Si la columna "Fecha compra" o "Fecha venta" no existe, se crea.',
@@ -129,6 +130,7 @@ async function ejecutar(nombre: string, input: any) {
       const { data } = await db().from('gastos').select('fecha, concepto, monto_usd, categoria').order('fecha');
       return data?.length ? data.map((g) => `${g.fecha} · ${g.concepto} · ${usd(Number(g.monto_usd))} · ${g.categoria || ''}`).join('\n') : 'No hay gastos anotados.';
     }
+    if (nombre === 'flujo_de_caja') return await flujoDeCaja();
     if (nombre === 'escribir_celda') return await escribirCelda(input);
     if (nombre === 'grafico_patrimonial') return await graficoPatrimonial();
     if (nombre === 'resumen_finanzas') return await resumenFinanzas(input?.mes);

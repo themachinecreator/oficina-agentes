@@ -217,3 +217,50 @@ export async function resumenFinanzas(mes?: string) {
   await setAhora('henry', `Armó el resumen de ${periodo}.`, 'ok');
   return lineas.join('\n');
 }
+
+// Flujo de caja completo del negocio: todas las filas del libro (aunque no tengan fotos), retiros y gastos.
+// Sirve para responder "¿dónde está la plata?".
+export async function flujoDeCaja() {
+  const id = await libroId();
+  const hoja = await primeraHoja(id);
+  const valores = await leerRango(id, `'${hoja}'`);
+  const enc = (valores[0] || []).map(norm);
+  const ix = (n: string[]) => enc.findIndex((h) => n.includes(h));
+  const c = { marca: ix(['marca']), modelo: ix(['modelo']), detalle: ix(['detalle']), total: ix(['total']), compra: ix(['precio compra']), gastos: ix(['gastos']),
+    venta: ix(['precio venta']), inversion: ix(['inversion inicial', 'inversión inicial']), fc: ix(['fecha compra']), fv: ix(['fecha venta']) };
+  const filas = valores.slice(1).filter((v) => String(v[c.marca] ?? '').trim());
+  const val = (v: any[], i: number) => (i >= 0 ? numero(v[i]) : null);
+  let inversion = 0, compras = 0, ventas = 0, gananciaRealizada = 0, enStock = 0;
+  const lineas: string[] = [];
+  for (const v of filas) {
+    const nombre = [v[c.marca], v[c.modelo], v[c.detalle]].filter((x) => String(x ?? '').trim()).join(' ');
+    const costo = val(v, c.total) ?? ((val(v, c.compra) || 0) + (val(v, c.gastos) || 0));
+    const venta = val(v, c.venta);
+    inversion += val(v, c.inversion) || 0;
+    compras += costo;
+    if (venta !== null) { ventas += venta; gananciaRealizada += venta - costo; } else enStock += costo;
+    lineas.push(`- ${nombre}: compra ${usd(costo)}${v[c.fc] ? ` (${v[c.fc]})` : ''}${venta !== null ? `, venta ${usd(venta)}${v[c.fv] ? ` (${v[c.fv]})` : ''}, ganancia ${usd(venta - costo)}` : ', en stock'}`);
+  }
+  let retiros = 0; const lineasRetiros: string[] = [];
+  try {
+    for (const r of (await leerRango(id, "'Retiros'!A2:C")).filter((r) => r.some((x: any) => String(x ?? '').trim()))) {
+      retiros += numero(r[2]) || 0; lineasRetiros.push(`- ${r[0]} · ${r[1]} · ${usd(numero(r[2]) || 0)}`);
+    }
+  } catch { /* sin hoja de retiros */ }
+  const { data: g } = await db().from('gastos').select('fecha, concepto, monto_usd');
+  const gastos = (g || []).reduce((a, x: any) => a + Number(x.monto_usd || 0), 0);
+  const caja = inversion + ventas - compras - retiros - gastos;
+  return [
+    'MOVIMIENTOS DEL LIBRO', ...lineas,
+    '', 'RETIROS', ...(lineasRetiros.length ? lineasRetiros : ['- ninguno']),
+    '', `GASTOS DEL NEGOCIO ANOTADOS: ${usd(gastos)}`,
+    '', 'CUENTAS',
+    `Capital inicial anotado: ${usd(inversion)}`,
+    `+ Cobrado por ventas: ${usd(ventas)}`,
+    `- Pagado en compras (todas, vendidas y en stock): ${usd(compras)}`,
+    `- Retiros: ${usd(retiros)}`,
+    `- Gastos: ${usd(gastos)}`,
+    `= Plata que debería haber en caja: ${usd(caja)}`,
+    `Ganancia realizada por ventas: ${usd(gananciaRealizada)}. Plata invertida en relojes en stock (al costo): ${usd(enStock)}.`,
+  ].join('\n');
+}
