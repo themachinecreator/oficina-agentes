@@ -143,7 +143,7 @@ export async function registrarCompra(input: {
   const gastos = input.gastos ?? 0;
   poner('marca', input.marca); poner('modelo', input.modelo); poner('referencia', input.referencia); poner('anio', input.anio);
   poner('compra', input.precio_compra); poner('gastos', gastos); poner('total', input.precio_compra + gastos);
-  poner('lista', input.precio_lista ? `${input.precio_lista} USD` : ''); poner('detalle', input.detalle);
+  poner('lista', input.precio_lista || ''); poner('detalle', input.detalle);
   poner('fechaCompra', fechaValida(input.fecha));
   await agregarFila(l.id, l.hoja, fila);
   await setAhora('henry', `Anotó la compra de un ${input.marca} ${input.modelo}.`, 'ok');
