@@ -23,10 +23,10 @@ async function correr(req: Request) {
   }
   const i = Number(url.searchParams.get('i') || 0);
   const prueba = url.searchParams.get('prueba') === '1';
-  // La tanda programada se saltea si Beltrán ya mandó a publicar en las últimas 20 horas.
+  // La tanda programada se saltea si ya se publicaron historias en las últimas 30 horas (por ejemplo, una tanda manual).
   if (i === 0 && !prueba && url.searchParams.get('ya') !== '1') {
     const { data } = await db().from('publicaciones').select('id').eq('tipo', 'historia').eq('estado', 'publicada')
-      .gte('creado', new Date(Date.now() - 20 * 3600000).toISOString()).limit(1);
+      .gte('creado', new Date(Date.now() - 30 * 3600000).toISOString()).limit(1);
     if (data?.length) return Response.json({ ok: true, mensaje: 'Ya se publicaron historias hoy.' });
   }
   const relojes = await relojesParaHistorias();
