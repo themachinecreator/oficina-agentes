@@ -54,7 +54,8 @@ let cacheSocio: { cuando: number; videos: { id: string; nombre: string; mimeType
 export async function videosSocio() {
   if (cacheSocio && Date.now() - cacheSocio.cuando < 5 * 60000) return cacheSocio.videos;
   const c = await carpetaSocio();
-  const videos = c ? await listarDrive(`'${c}' in parents and trashed = false and (mimeType contains 'video/' or mimeType contains 'image/')`, 'files(id,name,mimeType)') : [];
+  const videos = c ? (await listarDrive(`'${c}' in parents and trashed = false and (mimeType contains 'video/' or mimeType contains 'image/')`, 'files(id,name,mimeType)'))
+    .map((f: any) => ({ id: f.id as string, nombre: String(f.name || ''), mimeType: String(f.mimeType || '') })) : [];
   cacheSocio = { cuando: Date.now(), videos };
   return videos;
 }
