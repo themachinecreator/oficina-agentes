@@ -48,11 +48,13 @@ function leerPlanilla(csv: string, origen: string): Reloj[] {
   const encabezado = filas[iEnc].map(norm);
   const iVenta = encabezado.indexOf('precio venta');
   const iEstado = encabezado.indexOf('estado');
+  const iFechaVenta = encabezado.indexOf('fecha venta');
   const relojes: Reloj[] = [];
   for (const f of filas.slice(iEnc + 1)) {
     const marca = (f[0] || '').trim();
     if (!marca || /^total$/i.test(marca)) continue;
-    const vendido = (iVenta >= 0 && f[iVenta]?.trim()) || (iEstado >= 0 && /vendid|reservad/i.test(f[iEstado] || ''));
+    // Vendido: tiene precio de venta, o fecha de venta (aunque falte anotar el precio), o el estado lo dice.
+    const vendido = (iVenta >= 0 && f[iVenta]?.trim()) || (iFechaVenta >= 0 && f[iFechaVenta]?.trim()) || (iEstado >= 0 && /vendid|reservad/i.test(f[iEstado] || ''));
     if (vendido) continue;
     const r: Reloj = {};
     encabezado.forEach((h, i) => {
