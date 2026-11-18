@@ -60,7 +60,7 @@ function leerPlanilla(csv: string, origen: string): Reloj[] {
       let v = f[i]?.trim();
       if (!etiqueta || !v) return;
       if (etiqueta === 'Descuento') { v = formatearDescuento(v); if (!v) return; }
-      if (/precio/i.test(etiqueta) && /^\d+([.,]\d+)?$/.test(v)) v = `${Math.round(Number(v.replace(',', '.')) * 100) / 100} USD`;
+      if (/precio/i.test(etiqueta) && /^\d+([.,]\d+)?$/.test(v)) v = `US$ ${(Math.round(Number(v.replace(',', '.')) * 100) / 100).toLocaleString('es-AR')}`;
       r[etiqueta] = v;
     });
     if (!r['Precio'] && !r['Precio de lista']) r['Precio'] = 'a consultar';
@@ -99,10 +99,9 @@ export async function stockDisponible(): Promise<Reloj[]> {
   if (valor('socio_sheet_id')) {
     try {
       const socio = leerPlanilla(await exportarPlanillaCsv(valor('socio_sheet_id')!), 'sociedad');
-      for (const r of socio) if (r['Dial'] && !r['Detalle']) r['Detalle'] = `Dial ${r['Dial'].toLowerCase()}`;
+      for (const r of socio) if (r['Dial'] && !r['Detalle']) r['Detalle'] = /bisel/i.test(r['Dial']) ? r['Dial'][0].toUpperCase() + r['Dial'].slice(1).toLowerCase() : `Dial ${r['Dial'].toLowerCase()}`;
       const archivosSocio = await videosSocio();
       const deSocio = asignarArchivosSocio(socio, archivosSocio);
-      await db().from('credenciales').upsert({ clave: 'socio_error', valor: `ok: ${socio.length} relojes, ${archivosSocio.length} archivos, ${deSocio.size} emparejados`, actualizado: new Date().toISOString() });
       for (const r of socio) {
         const c = deSocio.get(r);
         if (!c) continue;
