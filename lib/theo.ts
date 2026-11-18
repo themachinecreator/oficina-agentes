@@ -21,7 +21,7 @@ export async function armarHistoria(r: Reloj) {
     const musica = path.join(dir, 'musica.mp3');
     const tema = await cancionAlAzar(musica);
 
-    const linea2 = [r['Año'] && `Año ${r['Año']}`, r['Referencia'] && `Ref. ${r['Referencia']}`].filter(Boolean).join('  ·  ');
+    const linea2 = [r['Año'] && `Año ${r['Año']}`, r['Referencia'] && `Ref. ${r['Referencia']}`].filter(Boolean).join('  ·  ') || (r['Detalle'] || '');
     const precio = r['Precio con descuento'] || r['Precio'] || r['Precio de lista'] || '';
     const t1 = await textoEnArchivo(dir, 't1', nombreReloj(r));
     const t2 = await textoEnArchivo(dir, 't2', linea2);
@@ -60,7 +60,9 @@ export async function armarHistoria(r: Reloj) {
 
 export async function publicarHistoriaDe(r: Reloj, publicar = true) {
   const { url, archivo, tema } = await armarHistoria(r);
-  const { data: fila } = await db().from('publicaciones').insert({ tipo: 'historia', reloj: nombreReloj(r), archivo, estado: 'armada' }).select('id').single();
+  // Con el detalle (dial) para distinguir piezas iguales cuando un cliente responde la historia.
+  const etiqueta = r['Detalle'] ? `${nombreReloj(r)} (${r['Detalle']})` : nombreReloj(r);
+  const { data: fila } = await db().from('publicaciones').insert({ tipo: 'historia', reloj: etiqueta, archivo, estado: 'armada' }).select('id').single();
   if (!publicar) return { url, tema };
   try {
     const cont = await crearContenedor('STORIES', url, true);

@@ -1,14 +1,14 @@
 import { db } from './db';
 import { exportarPlanillaCsv } from './google';
-import { carpetasRelojes, asignarCarpetas, CarpetaReloj } from './fotos';
+import { carpetasRelojes, asignarCarpetas, CarpetaReloj, videosSocio, asignarArchivosSocio } from './fotos';
 
 // Solo estas columnas pueden llegar a un cliente. Costos, gastos, ganancias, ahorro e inversión quedan afuera a propósito.
 const PUBLICAS: Record<string, string> = {
   marca: 'Marca', modelo: 'Modelo', referencia: 'Referencia', 'año': 'Año', ano: 'Año',
   movimiento: 'Movimiento', maquinaria: 'Calibre', caja: 'Caja original', papeles: 'Papeles',
   'tamaño': 'Tamaño', tamano: 'Tamaño', material: 'Material', 'condición': 'Condición', condicion: 'Condición',
-  detalle: 'Detalle', fotos: 'Fotos', estado: 'Estado',
-  'precio publicado': 'Precio', 'precio de lista': 'Precio', 'precio lista usd': 'Precio de lista',
+  detalle: 'Detalle', fotos: 'Fotos', estado: 'Estado', dial: 'Dial',
+  'precio publicado': 'Precio', 'precio de lista': 'Precio', 'precio lista': 'Precio', 'precio lista usd': 'Precio de lista',
   descuento: 'Descuento', 'precio final usd': 'Precio con descuento',
 };
 
@@ -75,7 +75,7 @@ let cache: { cuando: number; relojes: Reloj[] } | null = null;
 export async function stockDisponible(): Promise<Reloj[]> {
   if (cache && Date.now() - cache.cuando < 5 * 60000) return cache.relojes;
   const { data } = await db().from('credenciales').select('clave, valor')
-    .in('clave', ['stock_sheet_id', 'stock_pagina_sheet_id', 'notas_stock']);
+    .in('clave', ['stock_sheet_id', 'stock_pagina_sheet_id', 'notas_stock', 'socio_sheet_id']);
   const valor = (k: string) => data?.find((d) => d.clave === k)?.valor;
   const relojes: Reloj[] = [];
   if (valor('stock_sheet_id')) relojes.push(...leerPlanilla(await exportarPlanillaCsv(valor('stock_sheet_id')!), 'colección'));
@@ -94,6 +94,21 @@ export async function stockDisponible(): Promise<Reloj[]> {
     const c = asignado.get(r)!;
     r['Fotos'] = `${c.fotos.length} foto(s)${c.videos.length ? ` y ${c.videos.length} video(s)` : ''}`;
     carpetaDe.set(r, c);
+  }
+  // Relojes en sociedad (planilla y carpeta aparte): cada uno con su video.
+  if (valor('socio_sheet_id')) {
+    try {
+      const socio = leerPlanilla(await exportarPlanillaCsv(valor('socio_sheet_id')!), 'sociedad');
+      for (const r of socio) if (r['Dial'] && !r['Detalle']) r['Detalle'] = `Dial ${r['Dial'].toLowerCase()}`;
+      const deSocio = asignarArchivosSocio(socio, await videosSocio());
+      for (const r of socio) {
+        const c = deSocio.get(r);
+        if (!c) continue;
+        r['Fotos'] = c.videos.length ? '1 video(s)' : '1 foto(s)';
+        carpetaDe.set(r, c);
+        conFotos.push(r);
+      }
+    } catch { /* si la planilla del socio falla, sigue el resto del stock */ }
   }
   cache = { cuando: Date.now(), relojes: conFotos };
   return conFotos;

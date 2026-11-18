@@ -38,7 +38,50 @@ export async function carpetasRelojes(): Promise<CarpetaReloj[]> {
 // ¿El archivo está dentro de una subcarpeta de "Fotos relojes"? (para no exponer otros archivos del Drive)
 export async function archivoPermitido(parents: string[] = []) {
   const carpetas = await carpetasRelojes();
-  return parents.some((p) => carpetas.some((c) => c.id === p));
+  if (parents.some((p) => carpetas.some((c) => c.id === p))) return true;
+  const socio = await carpetaSocio();
+  return !!socio && parents.includes(socio);
+}
+
+// Relojes en sociedad: una carpeta aparte con un video por reloj (el nombre del archivo dice cuál es)
+// y una planilla con marca, modelo, dial y precio de lista.
+export async function carpetaSocio() {
+  const { data } = await db().from('credenciales').select('valor').eq('clave', 'socio_carpeta_id').maybeSingle();
+  return (data?.valor as string) || '';
+}
+
+let cacheSocio: { cuando: number; videos: { id: string; nombre: string; mimeType: string }[] } | null = null;
+export async function videosSocio() {
+  if (cacheSocio && Date.now() - cacheSocio.cuando < 5 * 60000) return cacheSocio.videos;
+  const c = await carpetaSocio();
+  const videos = c ? await listarDrive(`'${c}' in parents and trashed = false and (mimeType contains 'video/' or mimeType contains 'image/')`, 'files(id,name,mimeType)') : [];
+  cacheSocio = { cuando: Date.now(), videos };
+  return videos;
+}
+
+// Empareja cada reloj de la planilla del socio con su archivo ("TagHeuerAquaracerchampagne.MOV").
+export function asignarArchivosSocio<T extends Record<string, string>>(relojes: T[], archivos: { id: string; nombre: string; mimeType: string }[]) {
+  const pegado = (s: string) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+  const pares: { r: T; a: (typeof archivos)[number]; p: number }[] = [];
+  for (const a of archivos) {
+    const n = pegado(a.nombre.replace(/\.[^.]+$/, ''));
+    for (const r of relojes) {
+      const marca = pegado(r['Marca']), modelo = pegado(r['Modelo']), dial = pegado(r['Dial'] || '');
+      if (!marca || !modelo || !n.includes(marca) || !n.includes(modelo)) continue;
+      const p = 2 + modelo.length / 10 + (dial && n.includes(dial) ? 2 : 0);
+      pares.push({ r, a, p });
+    }
+  }
+  pares.sort((x, y) => y.p - x.p);
+  const asignado = new Map<T, CarpetaReloj>();
+  const usados = new Set<string>();
+  for (const { r, a } of pares) {
+    if (asignado.has(r) || usados.has(a.id)) continue;
+    const esVideo = a.mimeType.startsWith('video/');
+    asignado.set(r, { id: a.id, nombre: a.nombre, fotos: esVideo ? [] : [a.id], videos: esVideo ? [a.id] : [] });
+    usados.add(a.id);
+  }
+  return asignado;
 }
 
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ');
