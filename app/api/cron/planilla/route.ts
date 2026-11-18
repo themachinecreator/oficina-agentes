@@ -13,12 +13,12 @@ export async function POST(req: Request) {
   const { data: c } = await db().from('credenciales').select('valor').eq('clave', 'stock_sheet_id').maybeSingle();
   const id = c?.valor;
   if (!id) return Response.json({ error: 'Falta la planilla' }, { status: 404 });
-  const { accion, requests, data, rango } = await req.json().catch(() => ({}));
+  const { accion, requests, data, rango, render } = await req.json().catch(() => ({}));
   try {
     if (accion === 'leer') {
       const meta = await gapi(`${SHEETS}/${id}?fields=sheets(properties,bandedRanges,conditionalFormats,merges)`);
       const hoja = meta.sheets[0].properties.title;
-      const valores = await gapi(`${SHEETS}/${id}/values/${encodeURIComponent(rango || `'${hoja}'`)}?valueRenderOption=FORMULA&dateTimeRenderOption=FORMATTED_STRING`);
+      const valores = await gapi(`${SHEETS}/${id}/values/${encodeURIComponent(rango || `'${hoja}'`)}?valueRenderOption=${render === 'FORMATTED_VALUE' ? 'FORMATTED_VALUE' : 'FORMULA'}&dateTimeRenderOption=FORMATTED_STRING`);
       return Response.json({ meta, valores: valores.values || [] });
     }
     if (accion === 'valores' && Array.isArray(data)) {
@@ -28,6 +28,14 @@ export async function POST(req: Request) {
     if (accion === 'formato' && Array.isArray(requests)) {
       const r = await gapi(`${SHEETS}/${id}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests }) });
       return Response.json({ ok: true, respuestas: (r?.replies || []).length, replies: r?.replies });
+    }
+    if (accion === 'probar') {
+      // Lo que ven Henry (libro) y Margaret/Arthur (stock público) después de los cambios.
+      const { leerLibro } = await import('@/lib/henry');
+      const { stockDisponible } = await import('@/lib/stock');
+      const l = await leerLibro();
+      const stock = await stockDisponible();
+      return Response.json({ henry: { col: l.col, filas: l.filas.map((f) => f.v) }, stock });
     }
     return Response.json({ error: 'Acción desconocida' }, { status: 400 });
   } catch (e: any) {
