@@ -7,8 +7,9 @@ import { crearContenedor, esperarContenedor, publicarContenedor } from './public
 import { carpetasRelojes } from './fotos';
 import { jpegDeDrive } from './google';
 import { normalizar } from './video';
+import { avisar } from './telegram';
 
-const nombreReloj = (r: Reloj) => `${r['Marca'] || ''} ${r['Modelo'] || ''}`.replace(/\s+/g, ' ').trim();
+export const nombreReloj = (r: Reloj) => `${r['Marca'] || ''} ${r['Modelo'] || ''}`.replace(/\s+/g, ' ').trim();
 
 // Historia vertical 1080x1920: video (o foto) del reloj sin su sonido, música de fondo y la ficha abajo.
 export async function armarHistoria(r: Reloj) {
@@ -170,4 +171,77 @@ export async function historiaVendido(reloj: string, publicar = true) {
   } finally {
     await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+// ---------- Cola de historias ----------
+// La tanda se guarda como lista de relojes pendientes; un cron por minuto arma de a uno y otro publica lo armado.
+// Así ninguna ejecución depende de que la anterior le pase la posta.
+export const etiquetaHistoria = (r: Reloj) => (r['Detalle'] ? `${nombreReloj(r)} (${r['Detalle']})` : nombreReloj(r));
+type Tanda = { pendientes: string[]; armadas: number[]; total: number; inicio: string; trabajandoHasta?: number; avisada?: boolean };
+
+async function leerTanda(): Promise<Tanda | null> {
+  const { data } = await db().from('credenciales').select('valor').eq('clave', 'theo_tanda').maybeSingle();
+  try { return data?.valor ? JSON.parse(data.valor) : null; } catch { return null; }
+}
+async function guardarTanda(t: Tanda | null) {
+  await db().from('credenciales').upsert({ clave: 'theo_tanda', valor: t ? JSON.stringify(t) : '', actualizado: new Date().toISOString() });
+}
+
+export async function iniciarTanda() {
+  const relojes = await relojesParaHistorias();
+  const t: Tanda = { pendientes: relojes.map(etiquetaHistoria), armadas: [], total: relojes.length, inicio: new Date().toISOString() };
+  await guardarTanda(t);
+  await setAhora('theo', `Arrancó la tanda de historias (${t.total} relojes).`, 'ok');
+  return t.total;
+}
+
+// Arma la próxima historia pendiente (una por llamada).
+export async function colaArmar() {
+  const t = await leerTanda();
+  if (!t || !t.pendientes.length) return 'nada';
+  if (t.trabajandoHasta && t.trabajandoHasta > Date.now()) return 'ocupado';
+  const etiqueta = t.pendientes[0];
+  t.trabajandoHasta = Date.now() + 5 * 60000;
+  await guardarTanda(t);
+  const hecho = t.total - t.pendientes.length + 1;
+  try {
+    const r = (await relojesParaHistorias()).find((x) => etiquetaHistoria(x) === etiqueta);
+    if (r) {
+      await setAhora('theo', `Armando la historia de ${etiqueta} (${hecho} de ${t.total}).`, 'ok');
+      const res = await publicarHistoriaDe(r, 'aparte');
+      if (res?.fila) t.armadas.push(res.fila);
+    }
+    // Si el reloj ya no está (por ejemplo, se vendió), se saltea.
+  } catch (e: any) {
+    await avisar(`Theo no pudo armar la historia de ${etiqueta}: ${e.message}`);
+  }
+  const fresca = (await leerTanda()) || t;
+  fresca.pendientes = fresca.pendientes.filter((x) => x !== etiqueta);
+  fresca.armadas = Array.from(new Set([...(fresca.armadas || []), ...t.armadas]));
+  delete fresca.trabajandoHasta;
+  await guardarTanda(fresca);
+  return etiqueta;
+}
+
+// Publica lo que ya está armado, en orden.
+export async function colaPublicar() {
+  const t = await leerTanda();
+  if (!t) return 0;
+  const { data } = t.armadas.length ? await db().from('publicaciones').select('id, estado').in('id', t.armadas).order('id') : { data: [] as any[] };
+  let n = 0;
+  for (const p of data || []) {
+    if (p.estado !== 'armada') continue;
+    try { await publicarArmada(p.id); n++; } catch (e: any) { await avisar(`Theo no pudo publicar una historia: ${e.message}`); }
+  }
+  if (!t.pendientes.length && !t.avisada) {
+    const { data: fin } = t.armadas.length ? await db().from('publicaciones').select('estado').in('id', t.armadas) : { data: [] as any[] };
+    if ((fin || []).every((p: any) => p.estado !== 'armada')) {
+      const ok = (fin || []).filter((p: any) => p.estado === 'publicada').length;
+      await setAhora('theo', `Publicó las historias del stock (${ok}).`, 'ok');
+      await avisar(`Theo publicó las historias de hoy: ${ok} de ${t.total} relojes.`);
+      t.avisada = true;
+      await guardarTanda(t);
+    }
+  }
+  return n;
 }

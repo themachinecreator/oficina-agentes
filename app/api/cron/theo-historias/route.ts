@@ -1,7 +1,7 @@
 import { after } from 'next/server';
 import { cronAutorizado } from '@/lib/cron';
 import { googleConectado } from '@/lib/google';
-import { publicarArmadas, publicarArmada, publicarHistoriaDe, relojesParaHistorias, setAhora } from '@/lib/theo';
+import { publicarArmadas, publicarArmada, publicarHistoriaDe, relojesParaHistorias, setAhora, iniciarTanda, colaArmar, colaPublicar } from '@/lib/theo';
 import { avisar } from '@/lib/telegram';
 import { db } from '@/lib/db';
 
@@ -28,6 +28,10 @@ async function correr(req: Request) {
     catch (e: any) { await avisar(`Theo no pudo publicar una historia: ${e.message}`); }
     return Response.json({ ok: true });
   }
+  // Cola (crons por minuto): uno arma la próxima historia, otro publica lo armado.
+  const cola = url.searchParams.get('cola');
+  if (cola === 'armar') return Response.json({ ok: true, hecho: await colaArmar() });
+  if (cola === 'publicar') return Response.json({ ok: true, publicadas: await colaPublicar() });
   const i = Number(url.searchParams.get('i') || 0);
   const prueba = url.searchParams.get('prueba') === '1';
   // La tanda programada se saltea si ya se publicaron historias en las últimas 30 horas (por ejemplo, una tanda manual).
@@ -36,6 +40,8 @@ async function correr(req: Request) {
       .gte('creado', new Date(Date.now() - 30 * 3600000).toISOString()).limit(1);
     if (data?.length) return Response.json({ ok: true, mensaje: 'Ya se publicaron historias hoy.' });
   }
+  // Tanda real: se arma la lista y la cola hace el resto. (La prueba sigue el camino viejo, encadenado.)
+  if (!prueba) return Response.json({ ok: true, tanda: await iniciarTanda() });
   const relojes = await relojesParaHistorias();
   if (i >= relojes.length) return Response.json({ ok: true, fin: true });
   const r = relojes[i];
