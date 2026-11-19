@@ -18,7 +18,7 @@ export function leerGuion(contenido: string) {
   const lineas = contenido.split('\n').map((l) => l.trim());
   const tramos: Tramo[] = [];
   let actual: Tramo | null = null;
-  const seccion = /^(texto de la publicaci[oó]n|hashtags|qu[eé] grabar|para theo|portada)\b/i;
+  const seccion = /^(texto de la publicaci[oó]n|hashtags|qu[eé] grabar|qu[eé] conseguir|m[uú]sica|para theo|portada)\b/i;
   for (const l of lineas) {
     const t = /^\[\s*[\d.,]+\s*[–—-]\s*[\d.,]+\s*s?\s*\]\s*(.*)$/i.exec(l);
     if (t) { actual = { nombre: t[1], texto: '' }; tramos.push(actual); continue; }
