@@ -252,6 +252,14 @@ async function procesarSegmento(t: Trabajo, k: number) {
           if (tt === null) { t.avisos.push(`No encontré "${m.frase}" en la parte ${k + 1}.`); continue; }
           desde = tt;
           if (m.tipo === 'agua') {
+            // Si el agua cae al final del clip, se estira la última imagen para que la ola termine su recorrido.
+            const falta = tt - 0.1 + 1.65 - (s.dur || 0);
+            if (falta > 0) {
+              const largo2 = path.join(dir, 'largo.mp4');
+              await ffmpeg(['-i', salida, '-vf', `tpad=stop_mode=clone:stop_duration=${falta.toFixed(2)}`, '-af', `apad=pad_dur=${falta.toFixed(2)}`, ...VIDEO_OUT, largo2], 120000);
+              await fs.rename(largo2, salida);
+              s.dur = (s.dur || 0) + falta;
+            }
             const relleno = m.archivo ? await prepararEscena(dir, `a${j}`, m.archivo, 1.7, m.desde || 0) : null;
             const mask = await mascaraAgua(dir);
             if (relleno) ins.push('-i', relleno); else ins.push('-f', 'lavfi', '-i', 'color=c=0x1E6FB8:s=1080x1920:d=1.7:r=30');
