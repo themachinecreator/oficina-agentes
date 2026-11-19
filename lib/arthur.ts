@@ -266,7 +266,7 @@ const herramientasTheo: Anthropic.Tool[] = [
   },
   {
     name: 'editar_historia',
-    description: 'Theo edita un video de HISTORIA (guion de Julian con tramos [A CÁMARA] / [VOZ EN OFF] y apoyos B1, B2…): transcribe la toma de Beltrán, corta silencios, pone los apoyos sobre la voz en off, subtítulos palabra por palabra y logo, y lo manda para aprobar. La toma y los apoyos van en "Videos para editar/Guion N".',
+    description: 'Theo edita un video de HISTORIA (guion de Julian con tramos [A CÁMARA] / [VOZ EN OFF] y apoyos B1, B2…): transcribe la toma de Beltrán, corta silencios, pone los apoyos sobre la voz en off, subtítulos palabra por palabra y logo, y lo manda para aprobar. La toma y los apoyos van en "Videos para editar/Guion N". También sirve con clips a cámara sueltos (carpeta "Videos"), audios de voz en off (carpeta "Voz") y escenas (carpeta "fotos"): corta el final de cada clip, saca el sonido de las escenas y pone un efecto al entrar cada una.',
     input_schema: {
       type: 'object',
       properties: { guion_id: { type: 'number' }, musica: { type: 'string', enum: ['libre', 'sin'], description: 'libre = música de fondo bajita de la carpeta de Theo; sin = solo la voz (Beltrán agrega audio en Instagram)' } },

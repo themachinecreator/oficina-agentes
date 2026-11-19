@@ -39,9 +39,25 @@ export async function POST(req: Request) {
     });
     return Response.json({ ok: true });
   }
+  // Video de historia: si hay clips a cámara y voz en off por separado (carpetas "Videos" y "Voz"), va por pasos
+  // con la cola (cron por minuto); si no, el editor de una sola toma.
   if (tipo === 'historia') {
+    const { iniciarDocumental } = await import('@/lib/documental');
+    try {
+      const r = await iniciarDocumental(Number(guionId));
+      return Response.json({ ok: true, documental: r });
+    } catch (e: any) {
+      if (!/Necesito las carpetas/.test(e.message)) {
+        await avisar(`Theo no pudo arrancar el video de historia: ${e.message}`);
+        return Response.json({ error: e.message }, { status: 500 });
+      }
+    }
     after(() => editarHistoria(Number(guionId), { musica: musica === 'libre' ? 'libre' : 'sin' }).then(() => {}).catch(() => {}));
     return Response.json({ ok: true });
+  }
+  if (tipo === 'documental-paso') {
+    const { pasoDocumental } = await import('@/lib/documental');
+    return Response.json({ ok: true, paso: await pasoDocumental() });
   }
   // Copia a "Videos editados" los reels que Theo ya había terminado (los últimos `cantidad`).
   if (tipo === 'guardar') {
