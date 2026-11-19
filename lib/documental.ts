@@ -288,8 +288,9 @@ async function procesarSegmento(t: Trabajo, k: number) {
       if (s.momentos?.length) {
         const marcas: { t: number; m: Momento }[] = [];
         let desde = 0;
-        for (const m of s.momentos) {
-          const tt = buscarFrase(s.palabras || [], m.frase, desde, m.exacta);
+        for (const [mi, m] of s.momentos.entries()) {
+          // La primera escena arranca siempre al principio (no depende de que la transcripción tenga esa palabra).
+          const tt = mi === 0 ? 0 : buscarFrase(s.palabras || [], m.frase, desde, m.exacta);
           if (tt === null) { t.avisos.push(`No encontré "${m.frase}" en la parte ${k + 1}.`); continue; }
           marcas.push({ t: tt, m }); desde = tt;
         }
