@@ -21,7 +21,10 @@ import { stockDisponible, carpetaDelReloj } from './stock';
 
 type Palabra = { word: string; start: number; end: number };
 type Escena = { id: string; desc: string; archivo?: { id: string; nombre: string; video: boolean }; desde?: number };
-type Segmento = { tipo: 'camara' | 'off'; archivoId: string; nombre: string; escenas: Escena[]; hecho?: string; dur?: number; palabras?: Palabra[]; entradas?: number[] };
+// Momento sincronizado con una frase: una escena (archivo), el agua que inunda la pantalla o el champagne.
+export type Momento = { frase: string; tipo?: 'archivo' | 'agua' | 'champagne'; archivo?: { id: string; video: boolean }; desde?: number; dur?: number; exacta?: boolean };
+type Sonido = { t: number; tipo: 'whoosh' | 'splash' | 'fizz' };
+type Segmento = { tipo: 'camara' | 'off'; archivoId: string; nombre: string; escenas: Escena[]; hecho?: string; dur?: number; palabras?: Palabra[]; entradas?: number[]; momentos?: Momento[]; sonidos?: Sonido[] };
 type Trabajo = { guionId: number; titulo: string; caption: string; carpeta: string; segmentos: Segmento[]; respaldo?: string; trabajandoHasta?: number; inicio: string; avisos: string[]; intentosFinal?: number };
 
 const numeroDe = (n: string) => { const m = /(\d+)/.exec(n); return m ? Number(m[1]) : 999; };
@@ -56,7 +59,7 @@ function emparejarEscenas(escenas: Escena[], archivos: { id: string; name: strin
   }
 }
 
-export async function iniciarDocumental(guionId: number) {
+export async function iniciarDocumental(guionId: number, momentos?: Record<string, Momento[]>) {
   const { data: g } = await db().from('guiones').select('titulo, contenido').eq('id', guionId).maybeSingle();
   if (!g) throw new Error(`No encontré el guion ${guionId}.`);
   const tramos = leerHistoria(g.contenido);
@@ -93,6 +96,7 @@ export async function iniciarDocumental(guionId: number) {
     else { const a = audios[io++]; if (a) segmentos.push({ tipo: 'off', archivoId: a.id, nombre: a.name, escenas: t.apoyos.map((p) => ({ id: p.id, desc: `${p.desc} ${p.ref}` })) }); }
   }
   emparejarEscenas(segmentos.flatMap((s) => s.escenas), archivosEscenas);
+  for (const [k, ms] of Object.entries(momentos || {})) if (segmentos[Number(k)]) segmentos[Number(k)].momentos = ms;
 
   // Respaldo para las tomas del reloj que faltan: el video del reloj del guion (de tu stock o el del socio).
   let respaldo = '';
@@ -111,6 +115,45 @@ export async function iniciarDocumental(guionId: number) {
 }
 
 const VIDEO_OUT = ['-r', '30', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-ac', '2'];
+
+const normPal = (w: string) => String(w || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+// Busca una frase en la transcripción (desde un tiempo dado) y devuelve cuándo empieza.
+function buscarFrase(p: Palabra[], frase: string, desde = 0, exacta = false) {
+  const claves = frase.split(/\s+/).map(normPal).filter(Boolean);
+  const pal = p.map((w) => normPal(w.word));
+  const igual = (c: string, d: string) => (exacta ? d === c : d === c || d.startsWith(c) || (d.length >= 4 && c.startsWith(d)));
+  for (let i = 0; i + claves.length <= pal.length; i++) {
+    if (p[i].start + 0.01 < desde) continue;
+    if (claves.every((c, k) => igual(c, pal[i + k]))) return p[i].start;
+  }
+  return null;
+}
+
+// Champagne: fondo dorado con burbujas que suben.
+async function generarChampagne(dir: string, k: string, dur: number) {
+  const burbuja = path.join(dir, 'burbuja.png');
+  await ffmpeg(['-f', 'lavfi', '-i', 'color=c=black@0:s=48x48,format=rgba', '-vf', "geq=r='255':g='245':b='215':a='if(lt(hypot(X-24,Y-24),22),if(gt(hypot(X-24,Y-24),17),230,if(lt(hypot(X-16,Y-16),5),255,70)),0)'", '-frames:v', '1', burbuja]);
+  const entradas: string[] = ['-f', 'lavfi', '-i', `color=c=black:s=270x480:d=${dur.toFixed(2)}:r=30`];
+  const grafo = ["[0:v]geq=lum='140+45*sin(Y/45)+10*sin(X/30)':cb='88':cr='150',scale=1080:1920,format=yuv420p[b0]"];
+  let prev = 'b0';
+  for (let i = 1; i <= 28; i++) {
+    const x = (i * 137 + 60) % 1000, sp = 260 + (i * 71) % 320, off = (i * 331) % 1900, tam = 14 + (i * 13) % 38;
+    entradas.push('-loop', '1', '-i', burbuja);
+    grafo.push(`[${i}:v]scale=${tam}:${tam}[p${i}]`, `[${prev}][p${i}]overlay=x='${x}+18*sin(t*3+${i})':y='1920-mod(t*${sp}+${off}\\,2000)':shortest=1[b${i}]`);
+    prev = `b${i}`;
+  }
+  const salida = path.join(dir, `champ${k}.mp4`);
+  await ffmpeg([...entradas, '-filter_complex', grafo.join(';'), '-map', `[${prev}]`, '-t', dur.toFixed(2), '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p', salida], 120000);
+  return salida;
+}
+
+// Máscara de la ola: el agua sube desde abajo, cubre la pantalla y vuelve a bajar (1,6 s).
+async function mascaraAgua(dir: string) {
+  const L = '(H*(1-min(T/0.45,1))+H*max(0,(T-1.0)/0.55)+18*sin(X/38+T*11)+9*sin(X/17-T*7))';
+  const salida = path.join(dir, 'mascara.mp4');
+  await ffmpeg(['-f', 'lavfi', '-i', 'color=c=black:s=540x960:d=1.6:r=30', '-vf', `format=gray,geq=lum='if(gt(Y,${L}),255,0)',scale=1080:1920`, '-c:v', 'libx264', '-crf', '18', '-pix_fmt', 'yuv420p', salida], 60000);
+  return salida;
+}
 
 // Imagen o video de una escena a 1080x1920: si no es vertical, va entera al medio con el fondo desenfocado.
 async function prepararEscena(dir: string, k: string, archivo: { id: string; video: boolean }, dur: number, desde = 0) {
@@ -198,6 +241,39 @@ async function procesarSegmento(t: Trabajo, k: number) {
       s.dur = b - a;
       s.palabras = ws.map((w) => ({ word: w.word, start: Math.max(0, w.start - a), end: Math.max(0, w.end - a) }));
       s.entradas = [];
+      s.sonidos = [];
+      // Momentos sobre el clip a cámara: escenas que cortan unos segundos (tu voz sigue) o el agua que inunda la pantalla.
+      if (s.momentos?.length) {
+        const ins: string[] = ['-i', salida];
+        const g: string[] = [];
+        let ult = '[0:v]', i = 1, desde = 0;
+        for (const [j, m] of s.momentos.entries()) {
+          const tt = buscarFrase(s.palabras, m.frase, desde, m.exacta);
+          if (tt === null) { t.avisos.push(`No encontré "${m.frase}" en la parte ${k + 1}.`); continue; }
+          desde = tt;
+          if (m.tipo === 'agua') {
+            const relleno = m.archivo ? await prepararEscena(dir, `a${j}`, m.archivo, 1.7, m.desde || 0) : null;
+            const mask = await mascaraAgua(dir);
+            if (relleno) ins.push('-i', relleno); else ins.push('-f', 'lavfi', '-i', 'color=c=0x1E6FB8:s=1080x1920:d=1.7:r=30');
+            ins.push('-i', mask);
+            g.push(`[${i}:v]format=rgba,colorchannelmixer=bb=1.15:gg=1.05[w${j}]`, `[${i + 1}:v]format=gray[m${j}]`, `[w${j}][m${j}]alphamerge,colorchannelmixer=aa=0.9,setpts=PTS+${(tt - 0.1).toFixed(2)}/TB[wm${j}]`, `${ult}[wm${j}]overlay=0:0:eof_action=pass[o${j}]`);
+            i += 2; ult = `[o${j}]`;
+            s.sonidos.push({ t: tt - 0.1, tipo: 'splash' });
+          } else {
+            const d = m.dur || 2;
+            const clip = m.tipo === 'champagne' ? await generarChampagne(dir, `c${j}`, d) : await prepararEscena(dir, `c${j}`, m.archivo!, d, m.desde || 0);
+            ins.push('-i', clip);
+            g.push(`[${i}:v]setpts=PTS+${tt.toFixed(2)}/TB[c${j}]`, `${ult}[c${j}]overlay=0:0:eof_action=pass[o${j}]`);
+            i += 1; ult = `[o${j}]`;
+            s.sonidos.push({ t: tt, tipo: m.tipo === 'champagne' ? 'fizz' : 'whoosh' });
+          }
+        }
+        if (g.length) {
+          const con = path.join(dir, 'con.mp4');
+          await ffmpeg([...ins, '-filter_complex', g.join(';'), '-map', ult, '-map', '0:a', '-c:a', 'copy', '-r', '30', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', con], 240000);
+          await fs.rename(con, salida);
+        }
+      }
     } else {
       // Voz en off: audio sin silencios en los bordes; encima, las escenas repartidas en partes iguales y sin sonido.
       const orig = await bajarDeDrive(s.archivoId, path.join(dir, 'voz'));
@@ -208,6 +284,35 @@ async function procesarSegmento(t: Trabajo, k: number) {
       await ffmpeg(['-i', limpio, '-ac', '1', '-ar', '16000', '-b:a', '48k', mp3]);
       s.palabras = await transcribir(mp3).catch(() => []);
       s.dur = dur;
+      // Con momentos: cada escena entra en la palabra que la nombra y dura hasta la siguiente.
+      if (s.momentos?.length) {
+        const marcas: { t: number; m: Momento }[] = [];
+        let desde = 0;
+        for (const m of s.momentos) {
+          const tt = buscarFrase(s.palabras || [], m.frase, desde, m.exacta);
+          if (tt === null) { t.avisos.push(`No encontré "${m.frase}" en la parte ${k + 1}.`); continue; }
+          marcas.push({ t: tt, m }); desde = tt;
+        }
+        if (marcas.length) {
+          marcas[0].t = 0;
+          const partes: string[] = [];
+          for (const [i, x] of marcas.entries()) {
+            const fin = i + 1 < marcas.length ? marcas[i + 1].t : dur;
+            const d = Math.max(0.4, fin - x.t) + 0.04;
+            partes.push(x.m.tipo === 'champagne' ? await generarChampagne(dir, `${i}`, d) : await prepararEscena(dir, `${i}`, x.m.archivo!, d, x.m.desde || 0));
+          }
+          const lista = path.join(dir, 'lista.txt');
+          await fs.writeFile(lista, partes.map((p) => `file '${p}'`).join('\n'));
+          const visual = path.join(dir, 'visual.mp4');
+          await ffmpeg(['-f', 'concat', '-safe', '0', '-i', lista, '-c', 'copy', visual]);
+          await ffmpeg(['-i', visual, '-i', limpio, '-map', '0:v', '-map', '1:a', '-t', dur.toFixed(2), ...VIDEO_OUT, '-movflags', '+faststart', salida], 200000);
+          s.entradas = [];
+          s.sonidos = marcas.map((x) => ({ t: x.t, tipo: x.m.tipo === 'champagne' ? 'fizz' as const : 'whoosh' as const }));
+          s.hecho = `${t.carpeta}/seg${k}.mp4`;
+          await subirPublicacion(salida, s.hecho);
+          return;
+        }
+      }
       // Escenas con archivo; las que faltan y son tomas del reloj se cubren con el video del reloj.
       const usar: { id: string; video: boolean; desde: number }[] = [];
       let usoRespaldo = 0;
@@ -259,11 +364,12 @@ async function montarFinal(t: Trabajo) {
 
     // Tiempos globales: palabras para subtítulos y entradas de escenas para el efecto de sonido.
     const palabras: Palabra[] = [];
-    const golpes: number[] = [];
+    const golpes: Sonido[] = [];
     let acc = 0;
     for (const s of t.segmentos) {
       for (const w of s.palabras || []) palabras.push({ word: w.word, start: w.start + acc, end: w.end + acc });
-      for (const e of s.entradas || []) golpes.push(e + acc);
+      for (const e of s.entradas || []) golpes.push({ t: e + acc, tipo: 'whoosh' });
+      for (const e of s.sonidos || []) golpes.push({ t: e.t + acc, tipo: e.tipo });
       acc += s.dur || 0;
     }
     // Si falta la transcripción de alguna parte, se transcribe el audio completo.
@@ -277,7 +383,7 @@ async function montarFinal(t: Trabajo) {
     const dib: string[] = [];
     for (const [i, s] of subtitulosPorPalabra(palabras).entries()) {
       const fl = await textoEnArchivo(dir, `s${i}`, s.texto);
-      dib.push(`drawtext=fontfile='${fuente}':textfile='${fl}':fontsize=76:fontcolor=white:borderw=7:bordercolor=black@0.9:x=(w-tw)/2:y=h*0.64:enable='between(t,${s.desde.toFixed(2)},${s.hasta.toFixed(2)})'`);
+      dib.push(`drawtext=fontfile='${fuente}':textfile='${fl}':fontsize=76:fontcolor=white:borderw=7:bordercolor=black@0.9:x=(w-tw)/2:y=h*0.78:enable='between(t,${s.desde.toFixed(2)},${s.hasta.toFixed(2)})'`);
     }
     const entradas = ['-i', base];
     const grafo: string[] = [`[0:v]${dib.length ? dib.join(',') : 'null'}[vs]`];
@@ -287,12 +393,20 @@ async function montarFinal(t: Trabajo) {
 
     // Efecto de sonido ("whoosh") cada vez que entra una escena.
     const mezcla: string[] = ['[0:a]'];
-    if (golpes.length) {
-      const whoosh = path.join(dir, 'whoosh.wav');
-      await ffmpeg(['-f', 'lavfi', '-i', 'anoisesrc=d=0.55:c=pink:a=0.6', '-af', 'highpass=f=300,lowpass=f=6000,afade=t=in:d=0.22,afade=t=out:st=0.25:d=0.3,volume=0.9', '-ar', '44100', '-ac', '2', whoosh]);
-      entradas.push('-i', whoosh);
-      grafo.push(`[${idx}:a]asplit=${golpes.length}${golpes.map((_, i) => `[w${i}]`).join('')}`);
-      golpes.forEach((g, i) => { const ms = Math.max(0, Math.round((g - 0.12) * 1000)); grafo.push(`[w${i}]adelay=${ms}|${ms}[wd${i}]`); mezcla.push(`[wd${i}]`); });
+    // Efectos: "whoosh" al entrar cada escena, chapuzón para el agua y burbujeo para el champagne.
+    const efectos: Record<Sonido['tipo'], string[]> = {
+      whoosh: ['-f', 'lavfi', '-i', 'anoisesrc=d=0.55:c=pink:a=0.6', '-af', 'highpass=f=300,lowpass=f=6000,afade=t=in:d=0.22,afade=t=out:st=0.25:d=0.3,volume=0.9'],
+      splash: ['-f', 'lavfi', '-i', 'anoisesrc=d=1.3:c=white:a=0.8', '-f', 'lavfi', '-i', 'sine=f=70:d=0.35', '-filter_complex', '[0:a]lowpass=f=2500,afade=t=in:d=0.03,afade=t=out:st=0.25:d=1.0,volume=1.1[n];[1:a]afade=t=out:st=0.05:d=0.3,volume=1.4[b];[n][b]amix=inputs=2:duration=longest:normalize=0'],
+      fizz: ['-f', 'lavfi', '-i', 'anoisesrc=d=1.8:c=white:a=0.5', '-af', 'highpass=f=3500,tremolo=f=23:d=0.8,afade=t=in:d=0.15,afade=t=out:st=1.2:d=0.6,volume=0.7'],
+    };
+    for (const tipo of ['whoosh', 'splash', 'fizz'] as const) {
+      const lista = golpes.filter((x) => x.tipo === tipo);
+      if (!lista.length) continue;
+      const wav = path.join(dir, `${tipo}.wav`);
+      await ffmpeg([...efectos[tipo], '-ar', '44100', '-ac', '2', wav]);
+      entradas.push('-i', wav);
+      grafo.push(`[${idx}:a]asplit=${lista.length}${lista.map((_, i) => `[${tipo}${i}]`).join('')}`);
+      lista.forEach((g, i) => { const ms = Math.max(0, Math.round((g.t - (tipo === 'whoosh' ? 0.12 : 0)) * 1000)); grafo.push(`[${tipo}${i}]adelay=${ms}|${ms}[${tipo}d${i}]`); mezcla.push(`[${tipo}d${i}]`); });
       idx++;
     }
     // Música bajita de fondo (de la carpeta de Theo).

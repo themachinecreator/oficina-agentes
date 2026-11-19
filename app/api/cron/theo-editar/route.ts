@@ -15,7 +15,7 @@ export const maxDuration = 300;
 // Arthur llama acá; respondemos enseguida y Theo edita en segundo plano (puede llevar un par de minutos).
 export async function POST(req: Request) {
   if (!cronAutorizado(req)) return Response.json({ error: 'No autorizado' }, { status: 401 });
-  const { guionId, musica, subtitulos, tipo, nombre, descripcion, recuadro, cantidad, cancion, trabajo } = await req.json().catch(() => ({}));
+  const { guionId, musica, subtitulos, tipo, nombre, descripcion, recuadro, cantidad, cancion, trabajo, momentos } = await req.json().catch(() => ({}));
   if (tipo === 'vozenoff') {
     after(() => editarVozEnOff({ guionId: Number(guionId) || undefined, musica: musica === 'libre' || cancion ? 'libre' : 'sin', cancion: cancion || undefined }).then(() => {}).catch(() => {}));
     return Response.json({ ok: true });
@@ -44,7 +44,7 @@ export async function POST(req: Request) {
   if (tipo === 'historia') {
     const { iniciarDocumental } = await import('@/lib/documental');
     try {
-      const r = await iniciarDocumental(Number(guionId));
+      const r = await iniciarDocumental(Number(guionId), momentos && typeof momentos === 'object' ? momentos : undefined);
       return Response.json({ ok: true, documental: r });
     } catch (e: any) {
       if (!/Necesito las carpetas/.test(e.message)) {
