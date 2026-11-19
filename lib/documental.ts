@@ -22,7 +22,7 @@ import { stockDisponible, carpetaDelReloj } from './stock';
 type Palabra = { word: string; start: number; end: number };
 type Escena = { id: string; desc: string; archivo?: { id: string; nombre: string; video: boolean }; desde?: number };
 type Segmento = { tipo: 'camara' | 'off'; archivoId: string; nombre: string; escenas: Escena[]; hecho?: string; dur?: number; palabras?: Palabra[]; entradas?: number[] };
-type Trabajo = { guionId: number; titulo: string; caption: string; carpeta: string; segmentos: Segmento[]; respaldo?: string; trabajandoHasta?: number; inicio: string; avisos: string[] };
+type Trabajo = { guionId: number; titulo: string; caption: string; carpeta: string; segmentos: Segmento[]; respaldo?: string; trabajandoHasta?: number; inicio: string; avisos: string[]; intentosFinal?: number };
 
 const numeroDe = (n: string) => { const m = /(\d+)/.exec(n); return m ? Number(m[1]) : 999; };
 const pegado = (s: string) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
@@ -152,10 +152,24 @@ export async function pasoDocumental() {
     if (k >= 0) await procesarSegmento(t, k);
     else { await montarFinal(t); await guardarTrabajo(null); return 'terminado'; }
   } catch (e: any) {
-    await avisar(`Theo no pudo armar la parte ${k + 1} del video de historia: ${e.message}`);
-    await setAhora('theo', `No pudo armar el video de historia: ${String(e.message).slice(0, 140)}`, 'idle');
-    await guardarTrabajo(null);
-    return 'error';
+    // El final se reintenta una vez sin perder las partes ya armadas; una parte que falla se reintenta en el próximo minuto.
+    if (k < 0) {
+      t.intentosFinal = (t.intentosFinal || 0) + 1;
+      if (t.intentosFinal >= 2) {
+        await avisar(`Theo no pudo armar el final del video de historia: ${e.message}`);
+        await setAhora('theo', `No pudo armar el video de historia: ${String(e.message).slice(0, 140)}`, 'idle');
+        delete t.trabajandoHasta; t.intentosFinal = 0; await guardarTrabajo({ ...t, segmentos: t.segmentos, avisos: t.avisos });
+        await db().from('credenciales').upsert({ clave: 'theo_documental_pausado', valor: JSON.stringify(t), actualizado: new Date().toISOString() });
+        await guardarTrabajo(null);
+        return 'error';
+      }
+    } else {
+      await avisar(`Theo no pudo armar la parte ${k + 1} del video de historia: ${e.message}`);
+      await setAhora('theo', `No pudo armar el video de historia: ${String(e.message).slice(0, 140)}`, 'idle');
+      await db().from('credenciales').upsert({ clave: 'theo_documental_pausado', valor: JSON.stringify(t), actualizado: new Date().toISOString() });
+      await guardarTrabajo(null);
+      return 'error';
+    }
   }
   delete t.trabajandoHasta;
   await guardarTrabajo(t);
@@ -237,6 +251,11 @@ async function montarFinal(t: Trabajo) {
     const base = path.join(dir, 'base.mp4');
     await ffmpeg(['-f', 'concat', '-safe', '0', '-i', lista, '-c', 'copy', base]);
     const { dur: total } = await duracionYAudio(base);
+    for (const [k, p] of partes.entries()) if (!t.segmentos[k].dur) t.segmentos[k].dur = (await duracionYAudio(p)).dur;
+    if (!t.caption) {
+      const { data: g } = await db().from('guiones').select('contenido').eq('id', t.guionId).maybeSingle();
+      if (g) t.caption = leerGuion(g.contenido).caption;
+    }
 
     // Tiempos globales: palabras para subtítulos y entradas de escenas para el efecto de sonido.
     const palabras: Palabra[] = [];
@@ -246,6 +265,13 @@ async function montarFinal(t: Trabajo) {
       for (const w of s.palabras || []) palabras.push({ word: w.word, start: w.start + acc, end: w.end + acc });
       for (const e of s.entradas || []) golpes.push(e + acc);
       acc += s.dur || 0;
+    }
+    // Si falta la transcripción de alguna parte, se transcribe el audio completo.
+    if (t.segmentos.some((s) => !s.palabras)) {
+      const mp3 = path.join(dir, 'todo.mp3');
+      await ffmpeg(['-i', base, '-vn', '-ac', '1', '-ar', '16000', '-b:a', '48k', mp3]);
+      palabras.length = 0;
+      palabras.push(...await transcribir(mp3).catch(() => [] as Palabra[]));
     }
     const fuente = FUENTE_FUERTE.replace(/\\/g, '/').replace(/:/g, '\\:');
     const dib: string[] = [];
@@ -280,9 +306,11 @@ async function montarFinal(t: Trabajo) {
     grafo.push(`${mezcla.join('')}amix=inputs=${mezcla.length}:duration=first:dropout_transition=0:normalize=0,afade=t=out:st=${Math.max(0, total - 1).toFixed(2)}:d=1[am]`);
 
     const final = path.join(dir, 'final.mp4');
+    // El almacenamiento acepta hasta 50 MB: tope de bitrate según la duración (con margen).
+    const tope = Math.max(2500, Math.min(9000, Math.floor((44 * 8 * 1024) / total) - 170));
     await ffmpeg([...entradas, '-filter_complex', grafo.join(';'), '-map', ultimo, '-map', '[am]', '-t', total.toFixed(2),
-      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-maxrate', '9M', '-bufsize', '18M', '-pix_fmt', 'yuv420p',
-      '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', final], 280000);
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-maxrate', `${tope}k`, '-bufsize', `${tope * 2}k`, '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', final], 280000);
 
     const nombre = `reels/historia-${Date.now()}.mp4`;
     const url = await subirPublicacion(final, nombre);
