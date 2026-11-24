@@ -80,8 +80,9 @@ export async function publicarHistoriaDe(r: Reloj, publicar: boolean | 'aparte' 
 
 // Publica en Instagram una historia ya armada (se llama aparte para no sumar la espera de Instagram al armado).
 export async function publicarArmada(id: number) {
-  const { data: p } = await db().from('publicaciones').select('id, reloj, archivo, estado').eq('id', id).maybeSingle();
-  if (!p || p.estado !== 'armada') return null;
+  // Se toma la historia (armada → publicando) en un solo paso: si otra ejecución ya la tomó, no se publica dos veces.
+  const { data: p } = await db().from('publicaciones').update({ estado: 'publicando' }).eq('id', id).eq('estado', 'armada').select('id, reloj, archivo').maybeSingle();
+  if (!p) return null;
   const url = `${process.env.SUPABASE_URL}/storage/v1/object/public/publicaciones/${p.archivo}`;
   try {
     const cont = await crearContenedor('STORIES', url, !/\.(jpe?g|png)$/i.test(p.archivo));
@@ -235,7 +236,7 @@ export async function colaPublicar() {
   }
   if (!t.pendientes.length && !t.avisada) {
     const { data: fin } = t.armadas.length ? await db().from('publicaciones').select('estado').in('id', t.armadas) : { data: [] as any[] };
-    if ((fin || []).every((p: any) => p.estado !== 'armada')) {
+    if ((fin || []).every((p: any) => p.estado !== 'armada' && p.estado !== 'publicando')) {
       const ok = (fin || []).filter((p: any) => p.estado === 'publicada').length;
       await setAhora('theo', `Publicó las historias del stock (${ok}).`, 'ok');
       await avisar(`Theo publicó las historias de hoy: ${ok} de ${t.total} relojes.`);

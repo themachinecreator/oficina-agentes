@@ -14,24 +14,41 @@ export async function carpetaRaiz(): Promise<string> {
   return r[0].id;
 }
 
+// Una carpeta por reloj dentro de `padre`, con sus fotos y videos.
+export async function carpetasDe(padre: string, excluir?: RegExp): Promise<CarpetaReloj[]> {
+  const subs = (await listarDrive(`'${padre}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`))
+    .filter((s) => !excluir || !excluir.test(String(s.name).trim()));
+  const carpetas: CarpetaReloj[] = [];
+  for (const s of subs) {
+    const archivos = await listarDrive(`'${s.id}' in parents and trashed = false and (mimeType contains 'image/' or mimeType contains 'video/')`, 'files(id,name,mimeType,size)');
+    // Primero el archivo más pesado (el original antes que una copia de WhatsApp), pero las HEIC al final porque no todo las lee.
+    const esHeic = (a: any) => /heic|heif/i.test(`${a.mimeType} ${a.name}`);
+    archivos.sort((a: any, b: any) => Number(esHeic(a)) - Number(esHeic(b)) || Number(b.size || 0) - Number(a.size || 0));
+    const fotos = archivos.filter((a) => a.mimeType.startsWith('image/')).map((a) => a.id);
+    const videos = archivos.filter((a) => a.mimeType.startsWith('video/')).map((a) => a.id);
+    if (fotos.length || videos.length) carpetas.push({ id: s.id, nombre: s.name, fotos, videos });
+  }
+  return carpetas;
+}
+
 export async function carpetasRelojes(): Promise<CarpetaReloj[]> {
   if (cache && Date.now() - cache.cuando < 5 * 60000) return cache.carpetas;
   const raiz = await carpetaRaiz();
   if (!raiz) return [];
   // Carpetas de trabajo que viven en el mismo Drive pero no son relojes.
-  const especiales = /m[uú]sica|\btheo\b|videos para editar|videos editados|para\s+editar|linkedin|^ia$/i;
-  const subs = (await listarDrive(`'${raiz}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`))
-    .filter((s) => !especiales.test(String(s.name).trim()));
-  const carpetas: CarpetaReloj[] = [];
-  for (const s of subs) {
-    const archivos = await listarDrive(`'${s.id}' in parents and trashed = false and (mimeType contains 'image/' or mimeType contains 'video/')`, 'files(id,name,mimeType,size)');
-    // Primero el archivo más pesado: el original del celular antes que una copia comprimida (por ejemplo de WhatsApp).
-    archivos.sort((a: any, b: any) => Number(b.size || 0) - Number(a.size || 0));
-    const fotos = archivos.filter((a) => a.mimeType.startsWith('image/')).map((a) => a.id);
-    const videos = archivos.filter((a) => a.mimeType.startsWith('video/')).map((a) => a.id);
-    if (fotos.length || videos.length) carpetas.push({ id: s.id, nombre: s.name, fotos, videos });
-  }
+  const especiales = /m[uú]sica|\btheo\b|videos para editar|videos editados|para\s+editar|linkedin|^ia$|portadas|^p[aá]gina$|vendidos/i;
+  const carpetas = await carpetasDe(raiz, especiales);
   cache = { cuando: Date.now(), carpetas, raiz };
+  return carpetas;
+}
+
+// Catálogo de la página: carpeta "pagina" con su planilla y "Fotos y videos" (una carpeta por reloj).
+let cachePagina: { cuando: number; carpetas: CarpetaReloj[] } | null = null;
+export async function carpetasPagina() {
+  if (cachePagina && Date.now() - cachePagina.cuando < 5 * 60000) return cachePagina.carpetas;
+  const { data } = await db().from('credenciales').select('valor').eq('clave', 'pagina_fotos_id').maybeSingle();
+  const carpetas = data?.valor ? await carpetasDe(data.valor as string, /vendidos/i) : [];
+  cachePagina = { cuando: Date.now(), carpetas };
   return carpetas;
 }
 
@@ -39,6 +56,8 @@ export async function carpetasRelojes(): Promise<CarpetaReloj[]> {
 export async function archivoPermitido(parents: string[] = []) {
   const carpetas = await carpetasRelojes();
   if (parents.some((p) => carpetas.some((c) => c.id === p))) return true;
+  if (parents.some((p) => (cachePagina?.carpetas || []).some((c) => c.id === p))) return true;
+  if ((await carpetasPagina()).some((c) => parents.includes(c.id))) return true;
   const socio = await carpetaSocio();
   return !!socio && parents.includes(socio);
 }

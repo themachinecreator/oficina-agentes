@@ -1,6 +1,6 @@
 import { db } from './db';
 import { exportarPlanillaCsv } from './google';
-import { carpetasRelojes, asignarCarpetas, CarpetaReloj, videosSocio, asignarArchivosSocio } from './fotos';
+import { carpetasRelojes, asignarCarpetas, CarpetaReloj, videosSocio, asignarArchivosSocio, carpetasPagina } from './fotos';
 
 // Solo estas columnas pueden llegar a un cliente. Costos, gastos, ganancias, ahorro e inversión quedan afuera a propósito.
 const PUBLICAS: Record<string, string> = {
@@ -77,7 +77,7 @@ let cache: { cuando: number; relojes: Reloj[] } | null = null;
 export async function stockDisponible(): Promise<Reloj[]> {
   if (cache && Date.now() - cache.cuando < 5 * 60000) return cache.relojes;
   const { data } = await db().from('credenciales').select('clave, valor')
-    .in('clave', ['stock_sheet_id', 'stock_pagina_sheet_id', 'notas_stock', 'socio_sheet_id']);
+    .in('clave', ['stock_sheet_id', 'stock_pagina_sheet_id', 'notas_stock', 'socio_sheet_id', 'pagina_sheet_id']);
   const valor = (k: string) => data?.find((d) => d.clave === k)?.valor;
   const relojes: Reloj[] = [];
   if (valor('stock_sheet_id')) relojes.push(...leerPlanilla(await exportarPlanillaCsv(valor('stock_sheet_id')!), 'colección'));
@@ -114,6 +114,37 @@ export async function stockDisponible(): Promise<Reloj[]> {
     } catch (e: any) {
       // Si la planilla del socio falla, sigue el resto del stock (queda anotado el motivo).
       await db().from('credenciales').upsert({ clave: 'socio_error', valor: String(e?.message || e), actualizado: new Date().toISOString() });
+    }
+  }
+  // Catálogo de la página (planilla + una carpeta de fotos por reloj): suma solo los relojes que no están ya
+  // (mismo reloj = misma marca y misma referencia, o mismo modelo y mismo dial).
+  if (valor('pagina_sheet_id')) {
+    try {
+      const pegar = (x?: string) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+      const primera = (x?: string) => pegar(String(x || '').trim().split(/\s+/)[0]);
+      const dialDe = (r: Reloj) => pegar(String(r['Dial'] || r['Detalle'] || '').replace(/^dial\s*/i, ''));
+      const mismo = (a: Reloj, b: Reloj) => {
+        if (pegar(a['Marca']) !== pegar(b['Marca'])) return false;
+        const ra = pegar(a['Referencia']), rb = pegar(b['Referencia']);
+        if (ra && rb) return ra === rb || ra.includes(rb) || rb.includes(ra);
+        return primera(a['Modelo']) === primera(b['Modelo']) && !!dialDe(a) && dialDe(a) === dialDe(b);
+      };
+      const pagina = leerPlanilla(await exportarPlanillaCsv(valor('pagina_sheet_id')!), 'página');
+      const carpetas = await carpetasPagina();
+      for (const r of pagina) {
+        if (r['Dial'] && !r['Detalle']) r['Detalle'] = `Dial ${r['Dial'].replace(/^dial\s*/i, '').toLowerCase()}`;
+        if (conFotos.some((x) => mismo(x, r))) continue;
+        // Carpeta del reloj: por referencia en el nombre; si no, por marca y modelo.
+        const ref = pegar(r['Referencia']);
+        const c = carpetas.find((k) => ref && pegar(k.nombre).includes(ref))
+          || carpetas.find((k) => pegar(k.nombre).includes(pegar(r['Modelo'])) && pegar(k.nombre).includes(pegar(r['Marca']).slice(0, 4)));
+        if (!c) continue;
+        r['Fotos'] = `${c.fotos.length} foto(s) y ${c.videos.length} video(s)`;
+        carpetaDe.set(r, c);
+        conFotos.push(r);
+      }
+    } catch (e: any) {
+      await db().from('credenciales').upsert({ clave: 'pagina_error', valor: String(e?.message || e), actualizado: new Date().toISOString() });
     }
   }
   cache = { cuando: Date.now(), relojes: conFotos };
